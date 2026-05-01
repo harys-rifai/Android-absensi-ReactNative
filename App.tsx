@@ -1,31 +1,28 @@
 import { StatusBar } from "expo-status-bar";
-import * as Location from "expo-location";
+import { StyleSheet, View, Text, Pressable, ScrollView, ActivityIndicator, Alert, Platform } from "react-native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { NavigationContainer } from "@react-navigation/native";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { BarCodeScanner } from "expo-barcode-scanner";
+import * as Location from "expo-location";
+import * as SQLite from "expo-sqlite";
+
 import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  Modal,
-  Pressable,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-  Platform,
-} from "react-native";
-import { PROJECT_SITES } from "./src/constants/sites";
-import {
-  fetchAttendanceRecords,
-  fetchNews,
-  getApiBaseUrl,
   loginUser,
-  setApiBaseUrl,
+  fetchAttendanceRecords,
+  fetchLeaveRequests,
+  fetchOvertimeRequests,
+  fetchDashboardSummary,
+  fetchNews,
+  fetchPublicNews,
   syncAttendanceRecords,
+  createNews,
+  approveLeaveManager,
+  approveLeaveHrd,
+  NewsItem,
+  setApiBaseUrl,
+  getApiBaseUrl,
 } from "./src/services/attendanceApi";
+
 import {
   AttendanceRecord,
   EngineerUser,
@@ -37,7 +34,6 @@ import {
   getCachedUser,
   getLocalAttendanceForUser,
   getLocalNews,
-  getLocalUser,
   getServerConfig,
   getUnsyncedAttendance,
   initializeLocalDb,
@@ -49,6 +45,31 @@ import {
   saveNewsLocalBatch,
   saveServerConfig,
 } from "./src/services/localDb";
+
+// Cleanup old localStorage data on web platform
+if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+  try {
+    const attendance = JSON.parse(localStorage.getItem('attendance') || '[]');
+    if (attendance.length > 0) {
+      // Keep only records that have proper structure and deduplicate by date
+      const seen = new Set();
+      const cleaned = [];
+      attendance.forEach((record: any) => {
+        if (!record.check_in) return;
+        const date = record.check_in.split('T')[0];
+        const key = `${record.employee_id}-${date}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          cleaned.push(record);
+        }
+      });
+      localStorage.setItem('attendance', JSON.stringify(cleaned));
+      console.log(`Cleaned localStorage: ${attendance.length} → ${cleaned.length} records`);
+    }
+  } catch (e) {
+    console.error('Cleanup error:', e);
+  }
+}
 
 const Tab = createBottomTabNavigator();
 

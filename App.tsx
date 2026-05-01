@@ -416,7 +416,8 @@ export default function App() {
           >
             <Text style={styles.secondaryButtonText}>Settings</Text>
           </Pressable>
-
+        </View>
+        
         {isSubmitting ? (
           <View style={styles.loadingRow}>
             <ActivityIndicator />

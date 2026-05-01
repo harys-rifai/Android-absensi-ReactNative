@@ -1,7 +1,51 @@
 import * as SQLite from "expo-sqlite";
+import { Platform } from "react-native";
 import { AttendanceRecord, EngineerUser } from "../types/attendance";
 
-const dbPromise = SQLite.openDatabaseAsync("local_attendance.db");
+const isWeb = Platform.OS === "web";
+
+// Web fallback storage
+interface WebAttendance {
+  id: number;
+  employee_id: number;
+  check_in: string | null;
+  check_out: string | null;
+  latitude: number;
+  longitude: number;
+  location_type: string;
+  synced: number;
+  client_ref: string;
+}
+
+interface WebNews {
+  id: number;
+  remote_id: number | undefined;
+  title: string;
+  content: string;
+  image_url: string | undefined;
+  author_name: string | undefined;
+  published_at: string | undefined;
+  synced: number;
+}
+
+interface WebServerConfig {
+  key: string;
+  value: string;
+}
+
+const webStorage: {
+  employees: EngineerUser[];
+  attendance: WebAttendance[];
+  news: WebNews[];
+  serverConfig: WebServerConfig[];
+} = {
+  employees: [],
+  attendance: [],
+  news: [],
+  serverConfig: [],
+};
+
+const dbPromise = isWeb ? null : SQLite.openDatabaseAsync("local_attendance.db");
 
 const toBoolean = (value: unknown): boolean => {
   if (typeof value === "boolean") {
@@ -11,7 +55,11 @@ const toBoolean = (value: unknown): boolean => {
 };
 
 export const initializeLocalDb = async (): Promise<void> => {
-  const db = await dbPromise;
+  if (isWeb) {
+    console.log("Web mode: using in-memory storage");
+    return;
+  }
+  const db = await dbPromise!;
   await db.execAsync(`
     PRAGMA journal_mode = WAL;
     CREATE TABLE IF NOT EXISTS employee (
@@ -59,7 +107,11 @@ export const initializeLocalDb = async (): Promise<void> => {
 };
 
 export const cacheSignedInUser = async (user: EngineerUser): Promise<void> => {
-  const db = await dbPromise;
+  if (isWeb) {
+    webStorage.employees = [user];
+    return;
+  }
+  const db = await dbPromise!;
   await db.runAsync(
     `INSERT INTO employee (id, name, email, role, password_hash)
      VALUES (?, ?, ?, ?, NULL)
@@ -77,7 +129,22 @@ export const saveCheckInLocal = async (
   longitude: number,
   locationType: string
 ): Promise<void> => {
-  const db = await dbPromise;
+  if (isWeb) {
+    const clientRef = `web-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    webStorage.attendance.push({
+      id: Date.now(),
+      employee_id: employeeId,
+      check_in: new Date().toISOString(),
+      check_out: null,
+      latitude,
+      longitude,
+      location_type: locationType,
+      synced: 0,
+      client_ref: clientRef,
+    });
+    return;
+  }
+  const db = await dbPromise!;
   await db.runAsync(
     `INSERT INTO attendance (
        employee_id, check_in, check_out, latitude, longitude, location_type, synced, client_ref
@@ -94,10 +161,22 @@ export const saveCheckOutLocal = async (
   longitude: number,
   locationType: string
 ): Promise<boolean> => {
-  const db = await dbPromise;
+  if (isWeb) {
+    const open = webStorage.attendance.find(
+      (a) => a.employee_id === employeeId && !a.check_out
+    );
+    if (!open) return false;
+    open.check_out = new Date().toISOString();
+    open.latitude = latitude;
+    open.longitude = longitude;
+    open.location_type = locationType;
+    open.synced = 0;
+    return true;
+  }
+  const db = await dbPromise!;
   const open = await db.getFirstAsync<{ id: number }>(
     `SELECT id FROM attendance
-     WHERE employee_id = ? AND check_in IS NOT NULL AND check_out IS NULL
+     WHERE employee_id = $1 AND check_out IS NULL
      ORDER BY id DESC LIMIT 1`,
     [employeeId]
   );
@@ -109,18 +188,33 @@ export const saveCheckOutLocal = async (
   await db.runAsync(
     `UPDATE attendance
      SET check_out = datetime('now'),
-         latitude = ?,
-         longitude = ?,
-         location_type = ?,
+         latitude = $1,
+         longitude = $2,
+         location_type = $3,
          synced = 0
-     WHERE id = ?`,
+     WHERE id = $4`,
     [latitude, longitude, locationType, open.id]
   );
   return true;
 };
 
 export const getUnsyncedAttendance = async (): Promise<AttendanceRecord[]> => {
-  const db = await dbPromise;
+  if (isWeb) {
+    return webStorage.attendance
+      .filter((a) => a.synced === 0)
+      .map((row) => ({
+        id: row.id,
+        employee_id: row.employee_id,
+        check_in: row.check_in,
+        check_out: row.check_out,
+        latitude: row.latitude,
+        longitude: row.longitude,
+        location_type: row.location_type,
+        synced: false,
+        client_ref: row.client_ref,
+      }));
+  }
+  const db = await dbPromise!;
   const rows = await db.getAllAsync<{
     id: number;
     employee_id: number;
@@ -152,7 +246,7 @@ export const markAttendanceSynced = async (
   if (clientRefs.length === 0) {
     return;
   }
-  const db = await dbPromise;
+  const db = await dbPromise!
   const placeholders = clientRefs.map(() => "?").join(",");
   await db.runAsync(
     `UPDATE attendance SET synced = 1 WHERE client_ref IN (${placeholders})`,
@@ -165,7 +259,7 @@ export const insertSyncLog = async (
   status: "success" | "failed",
   message: string
 ): Promise<void> => {
-  const db = await dbPromise;
+  const db = await dbPromise!
   await db.runAsync(
     `INSERT INTO sync_log (attendance_client_ref, status, message)
      VALUES (?, ?, ?)`,
@@ -176,7 +270,27 @@ export const insertSyncLog = async (
 export const getLocalAttendanceForUser = async (
   employeeId: number
 ): Promise<AttendanceRecord[]> => {
-  const db = await dbPromise;
+  if (isWeb) {
+    return webStorage.attendance
+      .filter((a) => a.employee_id === employeeId)
+      .map((row) => ({
+        id: row.id,
+        employee_id: row.employee_id,
+        check_in: row.check_in,
+        check_out: row.check_out,
+        latitude: row.latitude,
+        longitude: row.longitude,
+        location_type: row.location_type,
+        synced: row.synced === 1,
+        client_ref: row.client_ref,
+      }))
+      .sort(
+        (a, b) =>
+          new Date(b.check_in || b.check_out || 0).getTime() -
+          new Date(a.check_in || a.check_out || 0).getTime()
+      );
+  }
+  const db = await dbPromise!;
   const rows = await db.getAllAsync<{
     id: number;
     employee_id: number;
@@ -190,7 +304,7 @@ export const getLocalAttendanceForUser = async (
   }>(
     `SELECT *
      FROM attendance
-     WHERE employee_id = ?
+     WHERE employee_id = $1
      ORDER BY COALESCE(check_in, check_out) DESC`,
     [employeeId]
   );
@@ -220,7 +334,20 @@ export type NewsItem = {
 };
 
 export const saveNewsLocal = async (news: NewsItem): Promise<void> => {
-  const db = await dbPromise;
+  if (isWeb) {
+    webStorage.news.push({
+      id: Date.now(),
+      remote_id: news.remote_id,
+      title: news.title,
+      content: news.content,
+      image_url: news.image_url,
+      author_name: news.author_name,
+      published_at: news.published_at,
+      synced: 1,
+    });
+    return;
+  }
+  const db = await dbPromise!;
   await db.runAsync(
     `INSERT OR REPLACE INTO news (remote_id, title, content, image_url, author_name, published_at, synced)
      VALUES (?, ?, ?, ?, ?, ?, 1)`,
@@ -229,7 +356,20 @@ export const saveNewsLocal = async (news: NewsItem): Promise<void> => {
 };
 
 export const saveNewsLocalBatch = async (newsItems: NewsItem[]): Promise<void> => {
-  const db = await dbPromise;
+  if (isWeb) {
+    webStorage.news = newsItems.map((item) => ({
+      id: Date.now(),
+      remote_id: item.remote_id,
+      title: item.title,
+      content: item.content,
+      image_url: item.image_url,
+      author_name: item.author_name,
+      published_at: item.published_at,
+      synced: 1,
+    }));
+    return;
+  }
+  const db = await dbPromise!;
   for (const news of newsItems) {
     await db.runAsync(
       `INSERT OR REPLACE INTO news (remote_id, title, content, image_url, author_name, published_at, synced)
@@ -240,7 +380,19 @@ export const saveNewsLocalBatch = async (newsItems: NewsItem[]): Promise<void> =
 };
 
 export const getLocalNews = async (): Promise<NewsItem[]> => {
-  const db = await dbPromise;
+  if (isWeb) {
+    return webStorage.news.map((row) => ({
+      id: row.id,
+      remote_id: row.remote_id ?? undefined,
+      title: row.title,
+      content: row.content,
+      image_url: row.image_url ?? undefined,
+      author_name: row.author_name ?? undefined,
+      published_at: row.published_at ?? undefined,
+      synced: row.synced === 1,
+    }));
+  }
+  const db = await dbPromise!;
   const rows = await db.getAllAsync<{
     id: number;
     remote_id: number | null;
@@ -271,7 +423,7 @@ export type ServerConfig = {
 };
 
 export const saveServerConfig = async (key: string, value: string): Promise<void> => {
-  const db = await dbPromise;
+  const db = await dbPromise!
   await db.runAsync(
     `INSERT OR REPLACE INTO server_config (key, value, updated_at)
      VALUES (?, ?, datetime('now'))`,
@@ -280,7 +432,7 @@ export const saveServerConfig = async (key: string, value: string): Promise<void
 };
 
 export const getServerConfig = async (key: string): Promise<string | null> => {
-  const db = await dbPromise;
+  const db = await dbPromise!
   const row = await db.getFirstAsync<{ value: string }>(
     `SELECT value FROM server_config WHERE key = ? LIMIT 1`,
     [key]

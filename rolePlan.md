@@ -60,7 +60,7 @@ Aplikasi absensi hybrid menggunakan React Native dengan Expo, SQLite local datab
 - Buat database lokal SQLite di perangkat
 - Simpan semua config (user, role, absensi, setting)
 - Default credentials:
-  - User: neondb_owner
+  - User: [NEON_USER]
   - Password: Password09
 
 #### 2. Default Mode (Offline-first)
@@ -83,10 +83,10 @@ Aplikasi absensi hybrid menggunakan React Native dengan Expo, SQLite local datab
 
 #### 4. Postgres → Neon Backup
 - Postgres replication/backup ke Neon:
-  - Host: ep-blue-morning-am69itpc.c-5.us-east-1.aws.neon.tech
+  - Host: [NEON_HOST]
   - DB: apsensi_db
-  - User: neondb_owner
-  - Password: npg_sfjvrTWXZw06
+  - User: [NEON_USER]
+  - Password: [NEON_PASSWORD]
   - Port: 5432
 
 #### 5. Sync Flow Detail

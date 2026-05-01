@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mobile Dashboard Absensi</title>
+    <style>
+      :root { color-scheme: light; }
+      * { box-sizing: border-box; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Inter", Arial, sans-serif;
+        margin: 0;
+        color: #0f172a;
+        background:
+          radial-gradient(1200px 600px at 50% -20%, #c7d2fe 0%, #e2e8f0 45%, #dbeafe 100%);
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 18px 10px;
+      }
+      .shell {
+        width: 390px;
+        max-width: 100%;
+        min-height: 844px;
+        background: linear-gradient(180deg, #f8fbff 0%, #f3f6fb 100%);
+        border-radius: 42px;
+        border: 10px solid #0f172a;
+        box-shadow:
+          0 30px 70px rgba(15, 23, 42, 0.35),
+          inset 0 1px 0 rgba(255, 255, 255, 0.75);
+        overflow: hidden;
+        position: relative;
+      }
+      .top {
+        color: #0f172a;
+        padding: max(env(safe-area-inset-top), 16px) 16px 10px;
+        background: linear-gradient(140deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.62));
+        backdrop-filter: blur(14px);
+        border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+      }
+      .island {
+        width: 124px;
+        height: 30px;
+        margin: 2px auto 14px;
+        border-radius: 999px;
+        background: #020617;
+        box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.12);
+      }
+      .top h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
+      .top p { margin: 6px 0 0; font-size: 13px; opacity: 0.75; }
+      .content {
+        padding: 12px 14px 118px;
+        overflow: auto;
+        height: calc(100% - 114px);
+      }
+      .card {
+        background: rgba(255, 255, 255, 0.72);
+        border-radius: 20px;
+        padding: 14px;
+        margin-bottom: 12px;
+        border: 1px solid rgba(226, 232, 240, 0.85);
+        backdrop-filter: blur(14px);
+        box-shadow: 0 7px 22px rgba(15, 23, 42, 0.06);
+      }
+      .card h2 { margin: 0 0 10px; font-size: 15px; }
+      .muted { color: #6b7280; font-size: 12px; }
+      .row { display: flex; gap: 8px; margin-bottom: 8px; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      .tabs {
+        position: absolute;
+        left: 12px;
+        right: 12px;
+        bottom: calc(max(env(safe-area-inset-bottom), 10px) + 18px);
+        z-index: 30;
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 6px;
+        background: rgba(15, 23, 42, 0.86);
+        border-radius: 20px;
+        padding: 8px;
+        backdrop-filter: blur(12px);
+        box-shadow: 0 14px 30px rgba(2, 6, 23, 0.35);
+      }
+      .tab {
+        border: 0;
+        background: transparent;
+        color: #cbd5e1;
+        border-radius: 12px;
+        padding: 9px 6px;
+        font-size: 11px;
+        cursor: pointer;
+        font-weight: 600;
+      }
+      .tab.active {
+        background: rgba(255, 255, 255, 0.14);
+        color: #ffffff;
+      }
+      input, button, select {
+        width: 100%;
+        border-radius: 14px;
+        border: 1px solid #d1d5db;
+        padding: 10px 12px;
+        font-size: 14px;
+      }
+      button {
+        border: 0;
+        background: linear-gradient(135deg, #2563eb, #3b82f6);
+        color: #fff;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button.ghost {
+        background: rgba(255, 255, 255, 0.9);
+        color: #1d4ed8;
+        border: 1px solid #bfdbfe;
+      }
+      .hidden { display: none; }
+      .kpi {
+        padding: 11px;
+        border-radius: 14px;
+        background: linear-gradient(160deg, #dbeafe, #eff6ff);
+        border: 1px solid #bfdbfe;
+      }
+      .kpi .label { font-size: 11px; color: #1e3a8a; opacity: 0.85; }
+      .kpi .value { margin-top: 4px; font-size: 21px; font-weight: 700; color: #1e3a8a; letter-spacing: -0.02em; }
+      .item { border-top: 1px solid #e2e8f0; padding: 10px 0; }
+      .item:first-child { border-top: 0; padding-top: 0; }
+      .item .title { font-size: 14px; font-weight: 600; }
+      .item .meta { margin-top: 2px; font-size: 12px; color: #6b7280; }
+      .status { font-size: 11px; padding: 2px 8px; border-radius: 999px; display: inline-block; margin-top: 4px; }
+      .ok { background: #dcfce7; color: #166534; }
+      .warn { background: #fef3c7; color: #92400e; }
+      .bad { background: #fee2e2; color: #991b1b; }
+      pre { margin: 0; background: #0f172a; color: #e2e8f0; padding: 10px; border-radius: 12px; overflow: auto; min-height: 80px; font-size: 11px; }
+      .home-indicator {
+        position: absolute;
+        bottom: 6px;
+        left: 50%;
+        width: 130px;
+        height: 5px;
+        margin-left: -65px;
+        border-radius: 999px;
+        background: rgba(15, 23, 42, 0.75);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <header class="top">
+        <div class="island"></div>
+        <h1>Dashboard Absensi</h1>
+        <p id="topMeta">Sign in untuk lihat absensi, cuti, lembur, dan data telat.</p>
+      </header>
+      <main class="content">
+        <section id="loginCard" class="card">
+          <h2>Login</h2>
+          <div class="row">
+            <input id="email" placeholder="Email" value="user@apsensi.local" />
+          </div>
+          <div class="row">
+            <input id="password" type="password" placeholder="Password" value="Password09" />
+          </div>
+          <div class="row">
+            <button id="btnLogin">Sign In</button>
+          </div>
+          <div class="muted">Admin all view: harys@google.com / xcxcxc</div>
+        </section>
+
+        <section id="dashboard" class="hidden">
+          <div class="card">
+            <h2>Summary</h2>
+            <div class="grid">
+              <div class="kpi"><div class="label">Total Absensi</div><div class="value" id="kpiTotal">0</div></div>
+              <div class="kpi"><div class="label">Late</div><div class="value" id="kpiLate">0</div></div>
+              <div class="kpi"><div class="label">Active Shift</div><div class="value" id="kpiActive">0</div></div>
+              <div class="kpi"><div class="label">Cuti</div><div class="value" id="kpiLeave">0</div></div>
+              <div class="kpi"><div class="label">Lembur</div><div class="value" id="kpiOvertime">0</div></div>
+            </div>
+          </div>
+
+          <div class="card tab-panel" id="panel-attendance">
+            <h2>Absensi GPS</h2>
+            <div class="row">
+              <button id="btnCheckIn">Check-in (GPS)</button>
+              <button class="ghost" id="btnCheckOut">Check-out (GPS)</button>
+            </div>
+            <div class="row">
+              <button class="ghost" id="btnRefresh">Refresh Dashboard</button>
+            </div>
+          </div>
+
+          <div class="card tab-panel hidden" id="panel-late">
+            <h2>History Absensi Late</h2>
+            <div id="lateList" class="muted">Belum ada data late.</div>
+          </div>
+
+          <div class="card tab-panel hidden" id="panel-leave">
+            <h2>Form Request Cuti</h2>
+            <div class="row">
+              <input id="leaveStart" type="date" />
+              <input id="leaveEnd" type="date" />
+            </div>
+            <div class="row">
+              <select id="leaveType">
+                <option value="annual">Annual</option>
+                <option value="sick">Sick</option>
+                <option value="urgent">Urgent</option>
+              </select>
+              <input id="leaveNote" placeholder="Catatan cuti" />
+            </div>
+            <div class="row">
+              <button id="btnSubmitLeave">Submit Cuti</button>
+            </div>
+          </div>
+
+          <div class="card tab-panel hidden" id="panel-overtime">
+            <h2>Form Request Lembur</h2>
+            <div class="row">
+              <input id="otDate" type="date" />
+              <input id="otHours" type="number" min="1" step="0.5" placeholder="Jam lembur" />
+            </div>
+            <div class="row">
+              <input id="otNote" placeholder="Catatan lembur" />
+            </div>
+            <div class="row">
+              <button id="btnSubmitOvertime">Submit Lembur</button>
+            </div>
+            <h2>Riwayat Lembur</h2>
+            <div id="overtimeList" class="muted">Belum ada data lembur.</div>
+          </div>
+
+          <div class="card">
+            <h2>History Absensi</h2>
+            <div id="attendanceList" class="muted">Belum ada data absensi.</div>
+          </div>
+
+          <div class="card">
+            <h2>Riwayat Cuti</h2>
+            <div id="leaveList" class="muted">Belum ada data cuti.</div>
+          </div>
+        </section>
+
+        <section id="debugCard" class="card hidden">
+          <h2>Debug API Response</h2>
+          <pre id="output">{ "message": "Ready" }</pre>
+        </section>
+      </main>
+      <nav id="bottomTabs" class="tabs hidden">
+        <button class="tab active" data-tab="attendance">Absensi</button>
+        <button class="tab" data-tab="late">Late</button>
+        <button class="tab" data-tab="leave">Cuti</button>
+        <button class="tab" data-tab="overtime">Lembur</button>
+      </nav>
+      <div class="home-indicator"></div>
+    </div>
+    <script src="/app.js"></script>
+  </body>
+</html>

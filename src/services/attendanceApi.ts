@@ -1,10 +1,18 @@
 import { Platform } from "react-native";
 import { AttendanceRecord, EngineerUser, UserRole } from "../types/attendance";
 
+let API_BASE_URL = Platform.OS === "android" ? "http://10.0.2.2:4000" : "http://localhost:4000";
+
+export const setApiBaseUrl = (url: string): void => {
+  API_BASE_URL = url;
+};
+
+export const getApiBaseUrl = (): string => {
+  return API_BASE_URL;
+};
+
 const defaultBaseUrl =
   Platform.OS === "android" ? "http://10.0.2.2:4000" : "http://localhost:4000";
-
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || defaultBaseUrl;
 
 type LoginPayload = {
   email: string;
@@ -78,4 +86,26 @@ export const fetchNews = async (): Promise<NewsItem[]> => {
     throw new Error("Gagal mengambil berita dari server.");
   }
   return (await response.json()) as NewsItem[];
+};
+
+export const fetchServerConfig = async (key: string): Promise<string | null> => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/config/${key}`);
+    if (!response.ok) return null;
+    const data = await response.json();
+    return data.value || null;
+  } catch {
+    return null;
+  }
+};
+
+export const saveServerConfigRemote = async (key: string, value: string): Promise<void> => {
+  const response = await fetch(`${API_BASE_URL}/config`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key, value }),
+  });
+  if (!response.ok) {
+    throw new Error("Gagal menyimpan konfigurasi server.");
+  }
 };

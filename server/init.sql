@@ -81,3 +81,14 @@ FROM employee e
 WHERE e.email = 'hrd@apsensi.local'
   AND NOT EXISTS (SELECT 1 FROM news WHERE title = 'Cara Menggunakan Fitur Absensi')
 LIMIT 1;
+
+CREATE TABLE IF NOT EXISTS server_config (
+  id SERIAL PRIMARY KEY,
+  key VARCHAR(50) UNIQUE NOT NULL,
+  value TEXT,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+INSERT INTO server_config (key, value)
+SELECT 'api_base_url', 'http://10.0.2.2:4000'
+WHERE NOT EXISTS (SELECT 1 FROM server_config WHERE key = 'api_base_url');

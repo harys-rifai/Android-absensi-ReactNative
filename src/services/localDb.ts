@@ -49,6 +49,12 @@ export const initializeLocalDb = async (): Promise<void> => {
       published_at TEXT,
       synced INTEGER DEFAULT 0
     );
+    CREATE TABLE IF NOT EXISTS server_config (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      key TEXT UNIQUE NOT NULL,
+      value TEXT,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 };
 
@@ -256,4 +262,28 @@ export const getLocalNews = async (): Promise<NewsItem[]> => {
     published_at: row.published_at ?? undefined,
     synced: toBoolean(row.synced),
   }));
+};
+
+export type ServerConfig = {
+  key: string;
+  value: string;
+  updated_at?: string;
+};
+
+export const saveServerConfig = async (key: string, value: string): Promise<void> => {
+  const db = await dbPromise;
+  await db.runAsync(
+    `INSERT OR REPLACE INTO server_config (key, value, updated_at)
+     VALUES (?, ?, datetime('now'))`,
+    [key, value]
+  );
+};
+
+export const getServerConfig = async (key: string): Promise<string | null> => {
+  const db = await dbPromise;
+  const row = await db.getFirstAsync<{ value: string }>(
+    `SELECT value FROM server_config WHERE key = ? LIMIT 1`,
+    [key]
+  );
+  return row?.value ?? null;
 };

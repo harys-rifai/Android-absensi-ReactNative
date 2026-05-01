@@ -582,6 +582,47 @@ app.post("/news/create", async (req, res) => {
   }
 });
 
+app.get("/config/:key", async (req, res) => {
+  try {
+    const { key } = req.params;
+    const result = await pool.query(
+      "SELECT value FROM server_config WHERE key = $1 LIMIT 1",
+      [key]
+    );
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: "Config key not found." });
+      return;
+    }
+    res.json(result.rows[0]);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to fetch config";
+    res.status(500).json({ error: message });
+  }
+});
+
+app.post("/config", async (req, res) => {
+  try {
+    const { key, value } = req.body;
+    if (!key || !value) {
+      res.status(400).json({ error: "key and value are required." });
+      return;
+    }
+    const result = await pool.query(
+      `INSERT INTO server_config (key, value)
+       VALUES ($1, $2)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+       RETURNING *`,
+      [key, value]
+    );
+    res.json(result.rows[0]);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to save config";
+    res.status(500).json({ error: message });
+  }
+});
+
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Attendance API running on http://0.0.0.0:${PORT}`);
   console.log(`For Android USB debugging, run: adb reverse tcp:${PORT} tcp:${PORT}`);

@@ -5,6 +5,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Modal,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -17,7 +18,11 @@ import { PROJECT_SITES } from "./src/constants/sites";
 import {
   fetchAttendanceRecords,
   fetchNews,
+  fetchServerConfig,
+  getApiBaseUrl,
   loginUser,
+  saveServerConfigRemote,
+  setApiBaseUrl,
   syncAttendanceRecords,
 } from "./src/services/attendanceApi";
 import {
@@ -30,6 +35,7 @@ import {
   cacheSignedInUser,
   getLocalAttendanceForUser,
   getLocalNews,
+  getServerConfig,
   getUnsyncedAttendance,
   initializeLocalDb,
   insertSyncLog,
@@ -38,6 +44,7 @@ import {
   saveCheckInLocal,
   saveCheckOutLocal,
   saveNewsLocalBatch,
+  saveServerConfig,
 } from "./src/services/localDb";
 
 const formatTime = (iso: string): string => {
@@ -54,6 +61,8 @@ export default function App() {
   const [selectedSiteId, setSelectedSiteId] = useState(PROJECT_SITES[0].id);
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [news, setNews] = useState<NewsItem[]>([]);
+  const [settingsVisible, setSettingsVisible] = useState(false);
+  const [serverUrlInput, setServerUrlInput] = useState("");
   const [isBooting, setIsBooting] = useState(true);
   const [isLoadingRecords, setIsLoadingRecords] = useState(false);
   const [isLoadingNews, setIsLoadingNews] = useState(false);
@@ -95,6 +104,36 @@ export default function App() {
       setIsLoadingNews(false);
     }
   }, []);
+
+  const loadServerConfig = useCallback(async () => {
+    try {
+      const localUrl = await getServerConfig("api_base_url");
+      if (localUrl) {
+        setApiBaseUrl(localUrl);
+        setServerUrlInput(localUrl);
+      } else {
+        const defaultUrl = getApiBaseUrl();
+        setServerUrlInput(defaultUrl);
+      }
+    } catch (error) {
+      console.error("Failed to load server config:", error);
+    }
+  }, []);
+
+  const saveServerUrl = async () => {
+    if (!serverUrlInput.trim()) {
+      Alert.alert("Error", "URL server tidak boleh kosong");
+      return;
+    }
+    try {
+      await saveServerConfig("api_base_url", serverUrlInput.trim());
+      setApiBaseUrl(serverUrlInput.trim());
+      setSettingsVisible(false);
+      Alert.alert("Sukses", "URL server berhasil disimpan. Restart aplikasi untuk menerapkan perubahan.");
+    } catch (error) {
+      Alert.alert("Error", "Gagal menyimpan URL server");
+    }
+  };
 
   const runSync = useCallback(async (activeUser?: EngineerUser) => {
     const signedInUser = activeUser ?? user;
@@ -139,11 +178,12 @@ export default function App() {
   useEffect(() => {
     const boot = async () => {
       await initializeLocalDb();
+      await loadServerConfig();
       await loadNews();
       setIsBooting(false);
     };
     void boot();
-  }, [loadNews]);
+  }, [loadNews, loadServerConfig]);
 
   useEffect(() => {
     if (!user) {
@@ -368,20 +408,14 @@ export default function App() {
               {isLoadingNews ? "Loading..." : "Refresh News"}
             </Text>
           </Pressable>
-          {user.role === "hrd" ? (
-            <Pressable
-              style={[styles.secondaryButton, styles.flexButton]}
-              onPress={() =>
-                Alert.alert(
-                  "Export CSV",
-                  "Akses endpoint: /attendance/export?role=hrd pada API."
-                )
-              }
-            >
-              <Text style={styles.secondaryButtonText}>Info Export</Text>
-            </Pressable>
-          ) : null}
-        </View>
+          <Pressable
+            style={[styles.secondaryButton, styles.flexButton]}
+            onPress={() => {
+              setSettingsVisible(true);
+            }}
+          >
+            <Text style={styles.secondaryButtonText}>Settings</Text>
+          </Pressable>
 
         {isSubmitting ? (
           <View style={styles.loadingRow}>
@@ -467,6 +501,48 @@ export default function App() {
             )}
           />
         )}
+
+        <Modal
+          visible={settingsVisible}
+          animationType="slide"
+          transparent
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Server Settings</Text>
+              <Text style={styles.modalSubtitle}>
+                Masukkan URL API Server (contoh: http://192.168.1.21:4000)
+              </Text>
+              <TextInput
+                style={styles.input}
+                placeholder="http://IP-ADDRESS:4000"
+                value={serverUrlInput}
+                onChangeText={setServerUrlInput}
+                autoCapitalize="none"
+                keyboardType="url"
+              />
+              <Text style={styles.modalHint}>
+                • Android Emulator: http://10.0.2.2:4000{"\n"}
+                • USB Debugging: http://IP-KOMPUTER:4000{"\n"}
+                • Web: http://localhost:4000
+              </Text>
+              <View style={styles.modalButtonRow}>
+                <Pressable
+                  style={[styles.secondaryButton, styles.flexButton]}
+                  onPress={() => setSettingsVisible(false)}
+                >
+                  <Text style={styles.secondaryButtonText}>Batal</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.primaryButton, styles.flexButton]}
+                  onPress={saveServerUrl}
+                >
+                  <Text style={styles.primaryButtonText}>Save</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </ScrollView>
     </SafeAreaView>
   );
@@ -607,6 +683,42 @@ const styles = StyleSheet.create({
   },
   warnText: {
     color: "#b45309",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalContent: {
+    backgroundColor: "#ffffff",
+    borderRadius: 12,
+    padding: 20,
+    width: "85%",
+    maxWidth: 400,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#111827",
+    marginBottom: 8,
+  },
+  modalSubtitle: {
+    color: "#4b5563",
+    fontSize: 14,
+    marginBottom: 16,
+  },
+  modalHint: {
+    color: "#6b7280",
+    fontSize: 12,
+    marginTop: 8,
+    marginBottom: 16,
+    lineHeight: 18,
+  },
+  modalButtonRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 8,
   },
   newsCard: {
     backgroundColor: "#ffffff",

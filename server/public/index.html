@@ -19,9 +19,9 @@
         padding: 18px 10px;
       }
       .shell {
-        width: 390px;
+        width: min(390px, calc(100vw - 16px));
         max-width: 100%;
-        min-height: 844px;
+        min-height: min(844px, calc(100vh - 20px));
         background: linear-gradient(180deg, #f8fbff 0%, #f3f6fb 100%);
         border-radius: 42px;
         border: 10px solid #0f172a;
@@ -30,6 +30,26 @@
           inset 0 1px 0 rgba(255, 255, 255, 0.75);
         overflow: hidden;
         position: relative;
+      }
+      @media (min-width: 760px) {
+        .shell {
+          width: 412px;
+          min-height: 892px;
+        }
+      }
+      @media (max-height: 760px), (max-width: 430px) {
+        body { padding: 0; }
+        .shell {
+          width: 100vw;
+          min-height: 100vh;
+          border-radius: 0;
+          border: 0;
+          box-shadow: none;
+        }
+        .island,
+        .home-indicator {
+          display: none;
+        }
       }
       .top {
         color: #0f172a;
@@ -73,7 +93,7 @@
         bottom: calc(max(env(safe-area-inset-bottom), 10px) + 18px);
         z-index: 30;
         display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
+        grid-template-columns: repeat(5, minmax(0, 1fr));
         gap: 6px;
         background: rgba(15, 23, 42, 0.86);
         border-radius: 20px;
@@ -225,18 +245,15 @@
             <div class="row">
               <button id="btnSubmitOvertime">Submit Lembur</button>
             </div>
-            <h2>Riwayat Lembur</h2>
-            <div id="overtimeList" class="muted">Belum ada data lembur.</div>
           </div>
 
-          <div class="card">
+          <div class="card tab-panel hidden" id="panel-history">
             <h2>History Absensi</h2>
             <div id="attendanceList" class="muted">Belum ada data absensi.</div>
-          </div>
-
-          <div class="card">
-            <h2>Riwayat Cuti</h2>
+            <h2 style="margin-top: 12px;">Riwayat Cuti</h2>
             <div id="leaveList" class="muted">Belum ada data cuti.</div>
+            <h2 style="margin-top: 12px;">Riwayat Lembur</h2>
+            <div id="overtimeList" class="muted">Belum ada data lembur.</div>
           </div>
         </section>
 
@@ -250,6 +267,7 @@
         <button class="tab" data-tab="late">Late</button>
         <button class="tab" data-tab="leave">Cuti</button>
         <button class="tab" data-tab="overtime">Lembur</button>
+        <button class="tab" data-tab="history">History</button>
       </nav>
       <div class="home-indicator"></div>
     </div>

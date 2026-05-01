@@ -61,7 +61,16 @@ const toJakartaTime = (date: Date): Date => {
 };
 
 const getJakartaDateString = (date: Date): string => {
-  const jakarta = toJakartaTime(date);
+  // Simpler approach: just use the date parts directly with UTC+7 adjustment
+  const jakartaTime = new Date(date.getTime() + JAKARTA_OFFSET_MS);
+  return `${jakartaTime.getUTCFullYear()}-${String(jakartaTime.getUTCMonth() + 1).padStart(2, '0')}-${String(jakartaTime.getUTCDate()).padStart(2, '0')}`;
+};
+
+// Helper to get date string from ISO string (handles timezone properly)
+const getDateStringFromISO = (isoString: string): string => {
+  const d = new Date(isoString);
+  // Adjust to Jakarta time (UTC+7)
+  const jakarta = new Date(d.getTime() + JAKARTA_OFFSET_MS);
   return `${jakarta.getUTCFullYear()}-${String(jakarta.getUTCMonth() + 1).padStart(2, '0')}-${String(jakarta.getUTCDate()).padStart(2, '0')}`;
 };
 
@@ -154,24 +163,54 @@ function AbsensiScreen({ user, onLogout }: { user: EngineerUser; onLogout: () =>
   const loadAttendance = useCallback(async () => {
     setIsLoadingRecords(true);
     try {
-      const local = await getLocalAttendanceForUser(user.id);
+      // Fetch from server first (authoritative source)
+      let remoteRecords: AttendanceRecord[] = [];
       try {
-        const remote = await fetchAttendanceRecords(user.id, user.role);
-        const recordMap = new Map();
-        for (const r of remote) {
-          const key = r.client_ref || String(r.id);
-          recordMap.set(key, r);
-        }
-        for (const r of local) {
-          const key = r.client_ref || String(r.id);
-          recordMap.set(key, r);
-        }
-        setRecords(Array.from(recordMap.values()));
-      } catch {
-        setRecords(local);
+        remoteRecords = await fetchAttendanceRecords(user.id, user.role);
+        console.log('Fetched from server:', remoteRecords.length, 'records');
+      } catch (e) {
+        console.log('Server fetch failed, using local data:', e);
       }
-    } catch {
+
+      // Get local records
+      const local = await getLocalAttendanceForUser(user.id);
+
+      // Merge: prioritize server data, fill with local if server fails
+      const byDate = new Map<string, AttendanceRecord>();
+
+      // Add remote records (mark as synced)
+      for (const r of remoteRecords) {
+        if (!r.check_in) continue;
+        const date = new Date(r.check_in).toISOString().split('T')[0];
+        r.synced = true; // Server data is synced
+        byDate.set(date, r);
+      }
+
+      // Add local records only if no server record for that date
+      for (const r of local) {
+        if (!r.check_in) continue;
+        const date = new Date(r.check_in).toISOString().split('T')[0];
+        if (!byDate.has(date)) {
+          byDate.set(date, r);
+        }
+      }
+
+      const merged = Array.from(byDate.values());
+      setRecords(merged);
+
+      // Update last message based on sync status
+      if (remoteRecords.length > 0) {
+        setLastMessage(`Data loaded: ${remoteRecords.length} records from server`);
+      } else if (local.length > 0) {
+        setLastMessage("Using local data (offline mode)");
+      } else {
+        setLastMessage("No attendance activity yet.");
+      }
+
+    } catch (error) {
+      console.error('Load attendance error:', error);
       setRecords([]);
+      setLastMessage("Error loading attendance data.");
     } finally {
       setIsLoadingRecords(false);
     }
@@ -314,12 +353,13 @@ function AbsensiScreen({ user, onLogout }: { user: EngineerUser; onLogout: () =>
   };
 
   const getDayStatus = (day: number) => {
-    const jakartaSelected = toJakartaTime(selectedDate);
-    const dateStr = `${jakartaSelected.getFullYear()}-${String(jakartaSelected.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    // Simple date string for comparison (YYYY-MM-DD)
+    const dateStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     const dayRecords = records.filter(r => {
       if (!r.check_in) return false;
-      const checkInJakarta = getJakartaDateString(new Date(r.check_in));
-      return checkInJakarta === dateStr;
+      // Extract date part directly from ISO string (handles timezone)
+      const checkInDate = r.check_in.split('T')[0];
+      return checkInDate === dateStr;
     });
     const todayJakarta = toJakartaTime(new Date());
     const dayDate = new Date(jakartaSelected.getFullYear(), jakartaSelected.getMonth(), day);
@@ -426,12 +466,13 @@ function AbsensiScreen({ user, onLogout }: { user: EngineerUser; onLogout: () =>
   };
 
   const selectedDayRecords = (() => {
-    const jakartaSelected = toJakartaTime(selectedDate);
-    const dateStr = getJakartaDateString(selectedDate);
+    // Simple date comparison - just compare YYYY-MM-DD part
+    const dateStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDate.getDate()).padStart(2, '0')}`;
     return records.filter(r => {
       if (!r.check_in) return false;
-      const checkInJakarta = getJakartaDateString(new Date(r.check_in));
-      return checkInJakarta === dateStr;
+      // Extract date part from ISO string
+      const checkInDate = r.check_in.split('T')[0];
+      return checkInDate === dateStr;
     });
   })();
 
@@ -500,9 +541,14 @@ function AbsensiScreen({ user, onLogout }: { user: EngineerUser; onLogout: () =>
           .slice(0, 5)
           .map((item, idx) => (
             <View key={idx} style={styles.recordCard}>
-              <Text style={styles.recordMeta}>
-                {toJakartaTime(new Date(item.check_in!)).toLocaleString('id-ID', { day: 'numeric', month: 'short' })}
-              </Text>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={styles.recordMeta}>
+                  {toJakartaTime(new Date(item.check_in!)).toLocaleString('id-ID', { day: 'numeric', month: 'short' })}
+                </Text>
+                <Text style={[styles.recordMeta, item.synced ? styles.okText : styles.warnText]}>
+                  {item.synced ? "✓ Synced" : "⏳ Pending"}
+                </Text>
+              </View>
               <Text style={styles.recordTitle}>
                 {item.employee_name ?? user.name}
               </Text>

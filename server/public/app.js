@@ -1,38 +1,29 @@
-const output = document.getElementById("output");
 const topMeta = document.getElementById("topMeta");
 const pageTitle = document.getElementById("pageTitle");
 const loginCard = document.getElementById("loginCard");
 const dashboardCard = document.getElementById("dashboardCard");
-const attendanceList = document.getElementById("attendanceList");
-const lateList = document.getElementById("lateList");
-const leaveList = document.getElementById("leaveList");
-const overtimeList = document.getElementById("overtimeList");
 const requestsList = document.getElementById("requestsList");
 const approvalsList = document.getElementById("approvalsList");
 const kpiTotal = document.getElementById("kpiTotal");
 const kpiLate = document.getElementById("kpiLate");
-const kpiActive = document.getElementById("kpiActive");
 const kpiLeave = document.getElementById("kpiLeave");
 const kpiOvertime = document.getElementById("kpiOvertime");
-const tabs = Array.from(document.querySelectorAll(".tab"));
-const panels = Array.from(document.querySelectorAll(".tab-panel"));
-const bottomTabs = document.getElementById("bottomTabs");
-const loadingOverlay = document.getElementById("loadingOverlay");
 const calendarContainer = document.getElementById("calendarContainer");
 const selectedDayRecords = document.getElementById("selectedDayRecords");
 const gpsStatus = document.getElementById("gpsStatus");
 const userInfo = document.getElementById("userInfo");
+
+let selectedDate = new Date();
+let attendanceRecords = [];
+let requestItems = [];
+let approvalItems = [];
+let sessionUser = null;
 
 const PROJECT_SITES = [
   { id: "jkt-hq", name: "Jakarta HQ", latitude: -6.2001, longitude: 106.8167, radiusMeters: 150 },
   { id: "bdg-plant", name: "Bandung Plant", latitude: -6.9147, longitude: 107.6098, radiusMeters: 200 },
   { id: "sby-field", name: "Surabaya Field Office", latitude: -7.2575, longitude: 112.7521, radiusMeters: 200 },
 ];
-
-let selectedDate = new Date();
-let attendanceRecords = [];
-let requestItems = [];
-let approvalItems = [];
 
 const HOLIDAYS_2026 = [
   '2026-01-01', '2026-01-29', '2026-03-29', '2026-04-03',
@@ -60,19 +51,9 @@ const formatTimeJakarta = (iso) => {
   } catch { return iso; }
 };
 
-const formatDateJakarta = (date) => {
-  const jakarta = toJakartaTime(date);
-  return jakarta.toLocaleString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
-};
-
-const show = (data) => {
-  if (output) {
-    output.textContent = typeof data === "string" ? data : JSON.stringify(data, null, 2);
-  }
-};
-
 const api = async (url, options = {}) => {
-  const res = await fetch(url, options);
+  const fullUrl = url.startsWith('/api') ? url.replace('/api', '/auth') : url;
+  const res = await fetch(fullUrl, options);
   const type = res.headers.get("content-type") || "";
   const body = type.includes("application/json") ? await res.json() : await res.text();
   if (!res.ok) {
@@ -81,14 +62,6 @@ const api = async (url, options = {}) => {
   return body;
 };
 
-const toLocal = (value) => {
-  if (!value) return "-";
-  try {
-    return new Date(value).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" });
-  } catch { return value; }
-};
-
-let sessionUser = null;
 const IS_ADMIN_ROLE = (role) => role === "hrd" || role === "admin";
 const IS_MANAGER_ROLE = (role) => role === "manager_line" || IS_ADMIN_ROLE(role);
 
@@ -104,27 +77,43 @@ const haversineDistanceMeters = (lat1, lon1, lat2, lon2) => {
   return R * c;
 };
 
-const getPosition = async () => {
-  if (!("geolocation" in navigator)) {
-    throw new Error("Browser tidak mendukung GPS.");
-  }
-  return new Promise((resolve, reject) => {
-    navigator.geolocation.getCurrentPosition(
-      (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy }),
-      (err) => {
-        const errorMessages = { 1: "Akses lokasi ditolak.", 2: "Lokasi tidak tersedia.", 3: "GPS timeout." };
-        reject(new Error(errorMessages[err.code] || err.message || "Gagal membaca GPS."));
-      },
-      { enableHighAccuracy: true, timeout: 20000, maximumAge: 10000 }
-    );
+const getDayStatus = (date) => {
+  const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  if (isHoliday(date)) return 'holiday';
+
+  const dayRecords = attendanceRecords.filter(r => {
+    if (!r.check_in) return false;
+    const d = new Date(r.check_in);
+    return d.getFullYear() === date.getFullYear() &&
+           d.getMonth() === date.getMonth() &&
+           d.getDate() === date.getDate();
   });
+
+  if (dayRecords.length === 0) return 'no-checkin';
+
+  const hasCheckin = dayRecords.some(r => r.check_in);
+  const hasCheckout = dayRecords.some(r => r.check_out);
+  const isLate = dayRecords.some(r => r.status === 'late');
+
+  if (hasCheckin && !hasCheckout) return 'forget-checkout';
+  if (isLate) return 'late';
+  if (hasCheckin) return 'checked-in';
+  return 'no-checkin';
 };
 
-const switchTab = (tabName) => {
-  tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.tab === tabName));
-  panels.forEach((panel) => panel.classList.toggle("hidden", panel.id !== `panel-${tabName}`));
-  const titles = { attendance: "Absensi", requests: "Requests", news: "News", approvals: "Approvals", settings: "Settings" };
-  if (pageTitle) pageTitle.textContent = titles[tabName] || "Absensi";
+const showTab = (tabName) => {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
+
+  const activeTab = document.querySelector(`.tab[data-tab="${tabName}"]`);
+  const activePanel = document.getElementById(`panel-${tabName}`);
+
+  if (activeTab) activeTab.classList.add('active');
+  if (activePanel) activePanel.classList.remove('hidden');
+
+  if (tabName === 'calendar') renderCalendar();
+  if (tabName === 'requests') loadRequests();
+  if (tabName === 'approvals' && sessionUser && IS_MANAGER_ROLE(sessionUser.role)) loadApprovals();
 };
 
 const renderCalendar = () => {
@@ -134,67 +123,39 @@ const renderCalendar = () => {
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const firstDay = new Date(year, month, 1).getDay();
 
-  const monthNames = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
-  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  let html = `
+    <div class="calendar-header">
+      <button class="calendar-nav" onclick="changeMonth(-1)">‹</button>
+      <div class="calendar-title">${formatDateJakarta(selectedDate)}</div>
+      <button class="calendar-nav" onclick="changeMonth(1)">›</button>
+    </div>
+    <div class="calendar-days">
+      ${['Min','Sen','Sel','Rab','Kam','Jum','Sab'].map(d => `<div class="calendar-day-header">${d}</div>`).join('')}
+  `;
 
-  let html = `<div class="calendar-header">
-    <button class="calendar-nav" onclick="window.changeMonth(-1)">‹</button>
-    <div class="calendar-title">${monthNames[month]} ${year}</div>
-    <button class="calendar-nav" onclick="window.changeMonth(1)">›</button>
-  </div>
-  <div class="calendar-days">`;
-
-  dayNames.forEach(d => { html += `<div class="calendar-day-header">${d}</div>`; });
-
-  for (let i = 0; i < firstDay; i++) { html += `<div></div>`; }
-
-  const today = new Date();
+  for (let i = 0; i < firstDay; i++) {
+    html += '<div class="calendar-day"></div>';
+  }
 
   for (let day = 1; day <= daysInMonth; day++) {
-    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    const dayRecords = attendanceRecords.filter(r => r.check_in && r.check_in.startsWith(dateStr));
-    const isToday = today.getDate() === day && today.getMonth() === month && today.getFullYear() === year;
-    const isSelected = selectedDate.getDate() === day;
+    const date = new Date(year, month, day);
+    const status = getDayStatus(date);
+    const isToday = date.toDateString() === new Date().toDateString();
+    const isHolidayDate = isHoliday(date);
 
-    let classes = "calendar-day";
-    let textColor = "";
+    let className = 'calendar-day';
+    if (status === 'checked-in') className += ' checked-in';
+    if (status === 'late') className += ' late';
+    if (status === 'no-checkin') className += ' no-checkin';
+    if (status === 'forget-checkout') className += ' forget-checkout';
+    if (isToday) className += ' today';
 
-    // Check holiday first
-    const dayDate = new Date(year, month, day);
-    if (isHoliday(dayDate)) {
-      textColor = ' style="color:#ff3b30;font-weight:600;"';
-    }
-
-    if (dayRecords.length > 0) {
-      const hasLate = dayRecords.some(r => r.check_in && isLate(r.check_in));
-      const hasForgetCheckout = dayRecords.some(r => !r.check_out);
-
-      if (hasLate) { classes += " late"; }
-      else if (hasForgetCheckout) { classes += " forget-checkout"; }
-      else { classes += " checked-in"; }
-    } else if (dayDate < today && !isToday) {
-      classes += " no-checkin";
-    }
-
-    if (isToday) classes += " today";
-    if (isSelected) classes += " active";
-
-    html += `<div class="${classes}" onclick="window.selectDate(${day})"${textColor}>${day}</div>`;
+    const textStyle = isHolidayDate ? 'color:#ff3b30;font-weight:600;' : '';
+    html += `<div class="${className}" style="${textStyle}" onclick="selectDay(${year}, ${month}, ${day})">${day}</div>`;
   }
 
   html += '</div>';
   calendarContainer.innerHTML = html;
-  renderSelectedDayRecords();
-};
-
-const isLate = (checkInStr) => {
-  try {
-    const d = new Date(checkInStr);
-    const jakarta = toJakartaTime(d);
-    const hours = jakarta.getUTCHours();
-    const minutes = jakarta.getUTCMinutes();
-    return (hours > 9) || (hours === 9 && minutes > 0);
-  } catch { return false; }
 };
 
 window.changeMonth = (delta) => {
@@ -202,346 +163,252 @@ window.changeMonth = (delta) => {
   renderCalendar();
 };
 
-window.selectDate = (day) => {
-  selectedDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day);
-  renderCalendar();
-};
+window.selectDay = (year, month, day) => {
+  const date = new Date(year, month, day);
+  const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 
-const renderSelectedDayRecords = () => {
   if (!selectedDayRecords) return;
-  const dateStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDate.getDate()).padStart(2, '0')}`;
-  const dayRecords = attendanceRecords.filter(r => r.check_in && r.check_in.startsWith(dateStr));
 
-  if (dayRecords.length === 0) {
-    selectedDayRecords.innerHTML = '<p class="muted">Tidak ada absensi di hari ini.</p>';
-    return;
+  const dayRecords = attendanceRecords.filter(r => {
+    if (!r.check_in) return false;
+    const d = new Date(r.check_in);
+    return d.getFullYear() === year && d.getMonth() === month && d.getDate() === day;
+  });
+
+  let html = `<div style="margin-top:12px;"><strong>${dateStr}</strong></div>`;
+  if (isHoliday(date)) html += '<div class="status warn">Holiday</div>';
+
+  if (dayRecords.length > 0) {
+    dayRecords.forEach(r => {
+      html += `
+        <div class="item">
+          <div class="item-title">${r.type || 'attendance'}</div>
+          <div class="item-meta">Check-in: ${formatTimeJakarta(r.check_in)}</div>
+          ${r.check_out ? `<div class="item-meta">Check-out: ${formatTimeJakarta(r.check_out)}</div>` : ''}
+          <div class="item-meta">Location: ${r.location_type || '-'}</div>
+          ${r.status ? `<div class="status ${r.status === 'late' ? 'warn' : 'ok'}">${r.status}</div>` : ''}
+        </div>
+      `;
+    });
+  } else if (!isHoliday(date)) {
+    html += '<div class="muted">No attendance records</div>';
   }
 
-  selectedDayRecords.innerHTML = dayRecords.map(row => `
-    <div class="item">
-      <div class="item-title">${row.employee_name || "Employee"} ${row.check_out ? "(Selesai)" : "(Aktif)"}</div>
-      <div class="item-meta">Check-in: ${formatTimeJakarta(row.check_in)}</div>
-      ${row.check_out ? `<div class="item-meta">Check-out: ${formatTimeJakarta(row.check_out)}</div>` : '<div class="item-meta">Belum check-out</div>'}
-      <span class="status ${row.synced ? 'ok' : 'warn'}">${row.synced ? '✓ Synced' : '⏳ Pending'}</span>
-    </div>
-  `).join("");
+  selectedDayRecords.innerHTML = html;
 };
 
-const loadDashboard = async () => {
+const login = async () => {
+  const email = document.getElementById('email')?.value;
+  const password = document.getElementById('password')?.value;
+
+  try {
+    const user = await api('/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+
+    sessionUser = user;
+    localStorage.setItem('absensi_user', JSON.stringify(user));
+
+    if (loginCard) loginCard.classList.add('hidden');
+    if (dashboardCard && IS_ADMIN_ROLE(user.role)) dashboardCard.classList.remove('hidden');
+
+    if (pageTitle) pageTitle.textContent = `Hello, ${user.name}`;
+    if (topMeta) topMeta.textContent = `Role: ${user.role}`;
+    if (userInfo) userInfo.textContent = `Logged in as: ${user.name} (${user.role})`;
+
+    loadAttendance();
+    if (IS_MANAGER_ROLE(user.role)) loadApprovals();
+  } catch (err) {
+    alert('Login failed: ' + err.message);
+  }
+};
+
+const loadAttendance = async () => {
   if (!sessionUser) return;
   try {
-    const data = await api(`/dashboard?requesterId=${encodeURIComponent(sessionUser.id)}&role=${encodeURIComponent(sessionUser.role)}`);
-    if (kpiTotal) kpiTotal.textContent = String(data.summary?.totalAttendance ?? 0);
-    if (kpiLate) kpiLate.textContent = String(data.summary?.lateCount ?? 0);
-    if (kpiActive) kpiActive.textContent = String(data.summary?.activeShift ?? 0);
-    if (kpiLeave) kpiLeave.textContent = String(data.summary?.leaveCount ?? 0);
-    if (kpiOvertime) kpiOvertime.textContent = String(data.summary?.overtimeCount ?? 0);
-
-    attendanceRecords = data.attendance || [];
-    if (lateList) renderLate(data.late || []);
-    if (leaveList) renderLeave(data.leave || []);
-    if (overtimeList) renderOvertime(data.overtime || []);
-
-    renderCalendar();
-  } catch (error) {
-    console.error("Dashboard error:", error);
+    attendanceRecords = await api(`/attendance?user_id=${sessionUser.id}`);
+    if (IS_ADMIN_ROLE(sessionUser.role)) {
+      const stats = await api('/dashboard');
+      if (kpiTotal) kpiTotal.textContent = stats.total || 0;
+      if (kpiLate) kpiLate.textContent = stats.late || 0;
+      if (kpiLeave) kpiLeave.textContent = stats.leave || 0;
+      if (kpiOvertime) kpiOvertime.textContent = stats.overtime || 0;
+    }
+  } catch (err) {
+    console.error('Failed to load attendance:', err);
   }
 };
 
 const loadRequests = async () => {
-  if (!sessionUser) return;
+  if (!sessionUser || !requestsList) return;
   try {
-    const [leaveRes, overtimeRes] = await Promise.all([
-      api(`/leave?requesterId=${sessionUser.id}&role=${sessionUser.role}`),
-      api(`/overtime?requesterId=${sessionUser.id}&role=${sessionUser.role}`)
-    ]);
-
-    requestItems = [
-      ...(leaveRes || []).map(r => ({ ...r, type: 'leave' })),
-      ...(overtimeRes || []).map(r => ({ ...r, type: 'overtime' })),
-    ];
-
-    renderRequests();
-  } catch (error) {
-    console.error("Requests error:", error);
-  }
-};
-
-const renderRequests = () => {
-  if (!requestsList) return;
-
-  if (requestItems.length === 0) {
-    requestsList.innerHTML = '<p class="muted">Tidak ada requests.</p>';
-    return;
-  }
-
-  requestsList.innerHTML = requestItems.map(row => {
-    const statusColor = row.status.includes('approved') ? '#34c759' :
-      row.status.includes('rejected') ? '#ff3b30' : '#ffcc00';
-    const statusText = row.type === 'leave' ?
-      row.status === 'approved' ? '✓ Approved' :
-      row.status === 'pending_hrd' ? '⏳ Waiting HRD' :
-      row.status === 'pending_manager' ? '⏳ Waiting Manager' : '✗ Rejected' : row.status;
-
-    return `
-      <div class="item">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-          <div class="item-title">${row.employee_name || 'Employee'} - ${row.type.charAt(0).toUpperCase() + row.type.slice(1)}</div>
-          <div style="background:${statusColor};padding:4px 8px;border-radius:6px;color:white;font-size:10px;font-weight:600;">${statusText}</div>
+    requestItems = await api(`/leave?user_id=${sessionUser.id}`);
+    let html = '';
+    requestItems.forEach(r => {
+      html += `
+        <div class="item">
+          <div class="item-title">${r.type} - ${r.status}</div>
+          <div class="item-meta">${formatTimeJakarta(r.created_at)}</div>
+          <div class="item-meta">${r.remarks || ''}</div>
+          <div class="status ${r.approval_status === 'approved' ? 'ok' : r.approval_status === 'rejected' ? 'bad' : 'warn'}">
+            ${r.approval_status || 'pending'}
+          </div>
         </div>
-        ${row.type === 'leave' ? `<div class="item-meta">Period: ${row.start_date} s/d ${row.end_date}</div>` : ''}
-        ${row.type === 'overtime' ? `<div class="item-meta">${row.overtime_date} - ${row.hours} hours</div>` : ''}
-        ${row.note ? `<div class="item-meta">Note: ${row.note}</div>` : ''}
-      </div>
-    `;
-  }).join("");
+      `;
+    });
+    requestsList.innerHTML = html || '<div class="muted">No requests</div>';
+  } catch (err) {
+    console.error('Failed to load requests:', err);
+  }
 };
 
 const loadApprovals = async () => {
-  if (!sessionUser) return;
+  if (!sessionUser || !approvalsList) return;
   try {
-    const [leaveRes, overtimeRes] = await Promise.all([
-      api(`/leave?requesterId=${sessionUser.id}&role=${sessionUser.role}`),
-      api(`/overtime?requesterId=${sessionUser.id}&role=${sessionUser.role}`)
-    ]);
-
-    approvalItems = [
-      ...(leaveRes || []).filter(r =>
-        sessionUser.role === 'manager_line' ? r.status === 'pending_manager' :
-        sessionUser.role === 'hrd' ? r.status === 'pending_hrd' : false
-      ).map(r => ({ ...r, type: 'leave' })),
-      ...(overtimeRes || []).filter(r =>
-        sessionUser.role === 'manager_line' ? r.status === 'pending_manager' :
-        sessionUser.role === 'hrd' ? r.status === 'pending_hrd' : false
-      ).map(r => ({ ...r, type: 'overtime' })),
-    ];
-
-    renderApprovals();
-  } catch (error) {
-    console.error("Approvals error:", error);
+    approvalItems = await api('/leave/requests');
+    let html = '';
+    approvalItems.forEach(a => {
+      html += `
+        <div class="item">
+          <div class="item-title">${a.user_name} - ${a.type}</div>
+          <div class="item-meta">${formatTimeJakarta(a.created_at)}</div>
+          <div class="item-meta">Status: ${a.approval_status}</div>
+          ${a.approval_remarks ? `<div class="item-meta">Remarks: ${a.approval_remarks}</div>` : ''}
+          ${a.approval_status === 'pending_manager' || a.approval_status === 'pending_hrd' ? `
+            <div class="row" style="margin-top:8px;">
+              <button class="btn btn-primary flex-1" onclick="approveRequest(${a.id}, 'approve')">Approve</button>
+              <button class="btn btn-destructive flex-1" onclick="approveRequest(${a.id}, 'reject')">Reject</button>
+            </div>
+          ` : ''}
+        </div>
+      `;
+    });
+    approvalsList.innerHTML = html || '<div class="muted">No pending approvals</div>';
+  } catch (err) {
+    console.error('Failed to load approvals:', err);
   }
 };
 
-const renderApprovals = () => {
-  if (!approvalsList) return;
-
-  if (approvalItems.length === 0) {
-    approvalsList.innerHTML = '<p class="muted">Tidak ada pending approvals.</p>';
-    return;
-  }
-
-  approvalsList.innerHTML = approvalItems.map(row => `
-    <div class="item">
-      <div class="item-title">${row.employee_name || 'Employee'} - ${row.type === 'leave' ? 'Leave' : 'Overtime'}</div>
-      <div class="item-meta">${row.type === 'leave' ? `Period: ${row.start_date} s/d ${row.end_date}` : `${row.overtime_date} - ${row.hours} hours`}</div>
-      ${row.note ? `<div class="item-meta">Note: ${row.note}</div>` : ''}
-      <div style="margin-top:8px;display:flex;gap:8px;">
-        <button class="approve-btn" onclick="window.approveRequest('${row.type}', ${row.id}, 'approve')">Approve</button>
-        <button class="reject-btn" onclick="window.approveRequest('${row.type}', ${row.id}, 'reject')">Reject</button>
-      </div>
-    </div>
-  `).join("");
-};
-
-window.approveRequest = async (type, id, action) => {
-  if (!sessionUser) return;
+window.approveRequest = async (id, action) => {
+  const remarks = prompt('Remarks (optional):');
   try {
-    const endpoint = type === 'leave' ?
-      (sessionUser.role === 'manager_line' ? '/leave/approve-manager' : '/leave/approve-hrd') :
-      (sessionUser.role === 'manager_line' ? '/overtime/approve-manager' : '/overtime/approve-hrd');
-
-    const url = `${endpoint}/${id}`;
-    const body = action === 'approve' ?
-      { approverId: sessionUser.id } :
-      { approverId: sessionUser.id, remark: 'Rejected' };
-
-    const result = await api(url, {
+    await api(`/leave/approve/${id}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
+      body: JSON.stringify({ action, remarks, role: sessionUser.role })
     });
-
-    alert(`Request ${action}d successfully`);
-    await loadApprovals();
-  } catch (error) {
-    alert(`Failed to ${action} request: ` + error.message);
+    alert('Approval updated');
+    loadApprovals();
+  } catch (err) {
+    alert('Failed: ' + err.message);
   }
 };
 
-const renderLeave = (rows) => {
-  if (!rows || rows.length === 0) {
-    leaveList.innerHTML = '<p class="muted">Belum ada data cuti.</p>';
-    return;
-  }
-  leaveList.innerHTML = rows.map(row => `
-    <div class="item">
-      <div class="item-title">${row.employee_name || "Employee"} - ${row.leave_type}</div>
-      <div class="item-meta">${toLocal(row.start_date)} s/d ${toLocal(row.end_date)}</div>
-      <span class="status ${row.status === 'approved' ? 'ok' : row.status === 'pending' ? 'warn' : 'bad'}">${row.status || "pending"}</span>
-    </div>
-  `).join("");
-};
-
-const renderLate = (rows) => {
-  if (!rows || rows.length === 0) {
-    lateList.innerHTML = '<p class="muted">Belum ada data late.</p>';
-    return;
-  }
-  lateList.innerHTML = rows.map(row => `
-    <div class="item">
-      <div class="item-title">${row.employee_name || "Employee"}</div>
-      <div class="item-meta">Masuk: ${toLocal(row.check_in)} | Lokasi: ${row.location_type || "-"}</div>
-      <span class="status bad">Late</span>
-    </div>
-  `).join("");
-};
-
-const renderOvertime = (rows) => {
-  if (!rows || rows.length === 0) {
-    overtimeList.innerHTML = '<p class="muted">Belum ada data lembur.</p>';
-    return;
-  }
-  overtimeList.innerHTML = rows.map(row => `
-    <div class="item">
-      <div class="item-title">${row.employee_name || "Employee"} - ${row.hours} jam</div>
-      <div class="item-meta">Tanggal: ${toLocal(row.overtime_date)} | ${row.note || "-"}</div>
-      <span class="status ${row.status === 'approved' ? 'ok' : 'warn'}">${row.status || "pending"}</span>
-    </div>
-  `).join("");
-};
-
-document.getElementById("btnLogin").addEventListener("click", async () => {
-  try {
-    const email = document.getElementById("email").value.trim();
-    const password = document.getElementById("password").value.trim();
-    const data = await api("/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
-    });
-    sessionUser = data;
-    if (topMeta) topMeta.textContent = `${data.name} (${data.role})`;
-    if (userInfo) userInfo.textContent = `User: ${data.name} (${data.role})`;
-    if (loginCard) loginCard.classList.add("hidden");
-    if (dashboardCard && IS_ADMIN_ROLE(data.role)) dashboardCard.classList.remove("hidden");
-    bottomTabs.classList.remove("hidden");
-    await loadDashboard();
-    await loadRequests();
-    await loadApprovals();
-  } catch (error) {
-    alert("Login gagal: " + error.message);
-  }
-});
-
-document.getElementById("btnRefresh").addEventListener("click", async () => {
-  await loadDashboard();
-  await loadRequests();
-  await loadApprovals();
-});
-
-document.getElementById("btnCheckIn").addEventListener("click", async () => {
-  if (!sessionUser) return;
-  try {
-    if (gpsStatus) gpsStatus.textContent = "Mendapatkan lokasi GPS...";
-    const pos = await getPosition();
-    if (gpsStatus) gpsStatus.textContent = `GPS: ${pos.latitude.toFixed(4)}, ${pos.longitude.toFixed(4)} (±${Math.round(pos.accuracy || 0)}m)`;
-
-    const selectedSite = PROJECT_SITES.find(s => s.id === sessionUser.site_id) || PROJECT_SITES[0];
-    const distance = haversineDistanceMeters(pos.latitude, pos.longitude, selectedSite.latitude, selectedSite.longitude);
-    const locationType = distance <= selectedSite.radiusMeters ? "onsite" : "offsite";
-
-    const result = await api("/attendance/check-in", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ requesterId: sessionUser.id, latitude: pos.latitude, longitude: pos.longitude, locationType: "gps-web" }),
-    });
-    alert(`Check-in berhasil! (${locationType}, jarak ${Math.round(distance)}m)`);
-    await loadDashboard();
-  } catch (error) {
-    if (gpsStatus) gpsStatus.textContent = "GPS Error: " + error.message;
-  }
-});
-
-document.getElementById("btnCheckOut").addEventListener("click", async () => {
-  if (!sessionUser) return;
-  try {
-    if (gpsStatus) gpsStatus.textContent = "Mendapatkan lokasi GPS...";
-    const pos = await getPosition();
-    if (gpsStatus) gpsStatus.textContent = `GPS: ${pos.latitude.toFixed(4)}, ${pos.longitude.toFixed(4)} (±${Math.round(pos.accuracy || 0)}m)`;
-
-    const selectedSite = PROJECT_SITES.find(s => s.id === sessionUser.site_id) || PROJECT_SITES[0];
-    const distance = haversineDistanceMeters(pos.latitude, pos.longitude, selectedSite.latitude, selectedSite.longitude);
-    const locationType = distance <= selectedSite.radiusMeters ? "onsite" : "offsite";
-
-    const result = await api("/attendance/check-out", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ requesterId: sessionUser.id, latitude: pos.latitude, longitude: pos.longitude, locationType: "gps-web" }),
-    });
-    alert(`Check-out berhasil! (${locationType}, jarak ${Math.round(distance)}m)`);
-    await loadDashboard();
-  } catch (error) {
-    if (gpsStatus) gpsStatus.textContent = "GPS Error: " + error.message;
-  }
-});
-
-document.getElementById("btnSubmitLeave").addEventListener("click", async () => {
-  if (!sessionUser) return;
-  try {
-    const startDate = document.getElementById("leaveStart").value;
-    const endDate = document.getElementById("leaveEnd").value;
-    const leaveType = document.getElementById("leaveType").value;
-    const note = document.getElementById("leaveNote").value.trim();
-    await api("/leave/request", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ requesterId: sessionUser.id, startDate, endDate, leaveType, note }),
-    });
-    alert("Cuti berhasil diajukan. Menunggu persetujuan manager & HRD.");
-    await loadRequests();
-  } catch (error) {
-    alert("Gagal: " + error.message);
-  }
-});
-
-document.getElementById("btnSubmitOvertime").addEventListener("click", async () => {
-  if (!sessionUser) return;
-  try {
-    const overtimeDate = document.getElementById("otDate").value;
-    const hours = Number(document.getElementById("otHours").value || "0");
-    const note = document.getElementById("otNote").value.trim();
-    await api("/overtime/request", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ requesterId: sessionUser.id, overtimeDate, hours, note }),
-    });
-    alert("Lembur berhasil diajukan");
-    await loadRequests();
-  } catch (error) {
-    alert("Gagal: " + error.message);
-  }
-});
-
-document.getElementById("btnLogout").addEventListener("click", () => {
+const logout = () => {
   sessionUser = null;
-  if (loginCard) loginCard.classList.remove("hidden");
-  if (dashboardCard) dashboardCard.classList.add("hidden");
-  bottomTabs.classList.add("hidden");
-  if (topMeta) topMeta.textContent = "Sign in untuk lihat absensi";
-});
+  localStorage.removeItem('absensi_user');
+  if (loginCard) loginCard.classList.remove('hidden');
+  if (dashboardCard) dashboardCard.classList.add('hidden');
+  if (pageTitle) pageTitle.textContent = 'Absensi';
+  if (topMeta) topMeta.textContent = 'Sign in untuk lihat absensi';
+};
 
-tabs.forEach((tab) => {
-  tab.addEventListener("click", () => switchTab(tab.dataset.tab));
-});
+const checkIn = async () => {
+  if (!sessionUser) return alert('Please login first');
 
-window.addEventListener("load", () => {
-  if (loadingOverlay) loadingOverlay.style.display = "none";
-  switchTab("attendance");
-});
-
-document.addEventListener("keydown", async (event) => {
-  if (event.key === "Enter" && !sessionUser) {
-    event.preventDefault();
-    document.getElementById("btnLogin").click();
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(async (position) => {
+      try {
+        const { latitude, longitude } = position.coords;
+        const result = await api('/attendance/check-in', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: sessionUser.id,
+            latitude,
+            longitude,
+            locationType: 'gps-web'
+          })
+        });
+        alert('Check-in successful');
+        loadAttendance();
+      } catch (err) {
+        alert('Check-in failed: ' + err.message);
+      }
+    }, (err) => {
+      alert('GPS error: ' + err.message);
+    }, { timeout: 30000 });
+  } else {
+    alert('Geolocation not supported');
   }
+};
+
+const checkOut = async () => {
+  if (!sessionUser) return alert('Please login first');
+
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(async (position) => {
+      try {
+        const { latitude, longitude } = position.coords;
+        const result = await api('/attendance/check-out', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: sessionUser.id,
+            latitude,
+            longitude,
+            locationType: 'gps-web'
+          })
+        });
+        alert('Check-out successful');
+        loadAttendance();
+      } catch (err) {
+        alert('Check-out failed: ' + err.message);
+      }
+    }, (err) => {
+      alert('GPS error: ' + err.message);
+    }, { timeout: 30000 });
+  } else {
+    alert('Geolocation not supported');
+  }
+};
+
+const syncNow = async () => {
+  if (!sessionUser) return alert('Please login first');
+  try {
+    const result = await api('/sync/attendance', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: sessionUser.id })
+    });
+    alert('Sync completed');
+  } catch (err) {
+    alert('Sync failed: ' + err.message);
+  }
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+  const savedUser = localStorage.getItem('absensi_user');
+  if (savedUser) {
+    sessionUser = JSON.parse(savedUser);
+    if (loginCard) loginCard.classList.add('hidden');
+    if (dashboardCard && IS_ADMIN_ROLE(sessionUser.role)) dashboardCard.classList.remove('hidden');
+    if (pageTitle) pageTitle.textContent = `Hello, ${sessionUser.name}`;
+    if (topMeta) topMeta.textContent = `Role: ${sessionUser.role}`;
+    if (userInfo) userInfo.textContent = `Logged in as: ${sessionUser.name} (${sessionUser.role})`;
+    loadAttendance();
+  }
+
+  document.getElementById('btnLogin')?.addEventListener('click', login);
+  document.getElementById('btnLogout')?.addEventListener('click', logout);
+  document.getElementById('btnCheckIn')?.addEventListener('click', checkIn);
+  document.getElementById('btnCheckOut')?.addEventListener('click', checkOut);
+  document.getElementById('btnSync')?.addEventListener('click', syncNow);
+  document.getElementById('btnRefresh')?.addEventListener('click', loadAttendance);
+
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => showTab(tab.dataset.tab));
+  });
 });

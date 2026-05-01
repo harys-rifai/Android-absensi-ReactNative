@@ -9,39 +9,35 @@
       * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
       body {
         font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Inter", Arial, sans-serif;
-        margin:0;
+        margin: 0;
         color: #000;
         background: #f2f2f7;
         min-height: 100vh;
-        overflow-x: hidden;
       }
 
-      .shell {
+      .container {
         width: 100%;
         max-width: 430px;
-        min-height: 100vh;
         margin: 0 auto;
         background: #f2f2f7;
         position: relative;
         padding-bottom: 83px;
       }
 
-      .top {
+      .header {
         position: sticky;
         top: 0;
         z-index: 100;
-        padding: max(env(safe-area-inset-top), 12px) 16px 10px;
+        padding: 12px 16px;
         background: rgba(242,242,247,0.95);
         backdrop-filter: blur(20px);
         border-bottom: 0.5px solid rgba(0,0,0,0.1);
       }
 
-      .top h1 { margin: 0; font-size: 24px; font-weight: 700; }
-      .top p { margin: 4px 0 0; font-size: 13px; color: #8e8e93; }
+      .header h1 { margin: 0; font-size: 24px; font-weight: 700; color: #000; }
+      .header p { margin: 4px 0 0; font-size: 13px; color: #8e8e93; }
 
-      .content {
-        padding: 12px 16px;
-      }
+      .content { padding: 16px; }
 
       .card {
         background: #fff;
@@ -51,83 +47,70 @@
         box-shadow: 0 1px 3px rgba(0,0,0,0.08);
       }
 
-      .card h2 { margin: 0 0 10px; font-size: 16px; font-weight: 600; }
-
-      .muted { color: #8e8e93; font-size: 13px; }
-
       .section-label {
         font-size: 16px;
         font-weight: 600;
         color: #000;
-        margin: 16px 0 10px;
+        margin: 20px 0 12px;
         padding-left: 4px;
       }
 
-      .stats-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 10px;
-        margin-bottom: 12px;
-      }
-
-      .stat-card {
+      .site-list { display: flex; flex-direction: column; gap: 10px; }
+      .site-button {
         background: #fff;
         border-radius: 12px;
         padding: 14px;
         box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        border: 2px solid transparent;
+        cursor: pointer;
       }
+      .site-button.active {
+        background: #e3f2fd;
+        border-color: #007AFF;
+      }
+      .site-name { font-size: 15px; font-weight: 600; color: #000; }
+      .site-meta { font-size: 13px; color: #8e8e93; margin-top: 4px; }
 
-      .stat-number {
-        font-size: 28px;
-        font-weight: 700;
-        color: #007AFF;
+      .btn {
+        border-radius: 12px;
+        padding: 14px 16px;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        border: none;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
       }
+      .btn-primary { background: #007AFF; color: #fff; box-shadow: 0 2px 4px rgba(0,122,255,0.3); }
+      .btn-secondary { background: #fff; color: #007AFF; }
+      .btn-destructive { background: #fff; color: #ff3b30; }
+      .btn-ghost { background: rgba(255,255,255,0.9); color: #1d4ed8; border: 1px solid #bfdbfe; }
 
-      .stat-label {
-        font-size: 12px;
-        color: #8e8e93;
-        margin-top: 4px;
-      }
+      .row { display: flex; gap: 12px; margin-top: 16px; }
+      .flex-1 { flex: 1; }
+      .flex-col { flex-direction: column; }
 
       .calendar {
         background: #fff;
         border-radius: 12px;
         padding: 14px;
-        margin-bottom: 12px;
+        margin-top: 12px;
         box-shadow: 0 1px 3px rgba(0,0,0,0.08);
       }
-
       .calendar-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
         margin-bottom: 12px;
       }
-
-      .calendar-title { font-size: 16px; font-weight: 600; }
-
-      .calendar-nav {
-        color: #007AFF;
-        font-size: 18px;
-        background: none;
-        border: none;
-        cursor: pointer;
-        padding: 4px 8px;
-      }
+      .calendar-title { font-size: 16px; font-weight: 600; color: #000; }
+      .calendar-nav { color: #007AFF; font-size: 18px; background: none; border: none; cursor: pointer; padding: 4px 8px; }
 
       .calendar-days {
         display: grid;
         grid-template-columns: repeat(7, 1fr);
         gap: 2px;
-        text-align: center;
+        justify-content: center;
       }
-
-      .calendar-day-header {
-        font-size: 10px;
-        color: #8e8e93;
-        padding: 4px;
-      }
-
       .calendar-day {
         width: 36px;
         height: 36px;
@@ -135,57 +118,46 @@
         display: flex;
         align-items: center;
         justify-content: center;
+        margin: 2px auto;
         font-size: 14px;
-        margin: 0 auto;
-        cursor: pointer;
+        color: #000;
       }
-
-      .calendar-day.active {
-        background: #007AFF;
-        color: #fff;
+      .calendar-day-header {
+        width: 36px;
+        text-align: center;
+        font-size: 10px;
+        color: #8e8e93;
+        margin: 2px auto;
       }
+      .calendar-day.active { background: #007AFF; color: #fff; }
+      .calendar-day.today { border: 2px solid #007AFF; }
+      .calendar-day.has-record { background: #e3f2fd; color: #007AFF; font-weight: 600; }
+      .calendar-day.checked-in { background: #007AFF; color: #fff; }
+      .calendar-day.late { background: #ffcc00; color: #000; }
+      .calendar-day.no-checkin { background: #ff3b30; color: #fff; }
+      .calendar-day.forget-checkout { background: #8e8e93; color: #fff; }
 
-      .calendar-day.today {
-        border: 2px solid #007AFF;
+      .item {
+        padding: 10px 0;
+        border-top: 0.5px solid #e5e5ea;
       }
+      .item:first-child { border-top: none; padding-top: 0; }
+      .item-title { font-size: 14px; font-weight: 600; color: #000; }
+      .item-meta { font-size: 12px; color: #8e8e93; margin-top: 2px; }
 
-      .calendar-day.has-record {
-        background: #e3f2fd;
-        color: #007AFF;
-        font-weight: 600;
+      .status {
+        display: inline-block;
+        font-size: 11px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        margin-top: 4px;
       }
+      .status.ok { background: #dcfce7; color: #166534; }
+      .status.warn { background: #fef3c7; color: #92400e; }
+      .status.bad { background: #fee2e2; color: #991b1b; }
 
-      input, button, select {
-        width: 100%;
-        border-radius: 10px;
-        border: 0;
-        padding: 12px 16px;
-        font-size: 16px;
-        background: #fff;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-      }
-
-      button {
-        background: #007AFF;
-        color: #fff;
-        font-weight: 600;
-        cursor: pointer;
-        box-shadow: 0 2px 4px rgba(0,122,255,0.3);
-      }
-
-      button.secondary {
-        background: #fff;
-        color: #007AFF;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-      }
-
-      button.destructive {
-        background: #fff;
-        color: #ff3b30;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-      }
-
-      .row { display: flex; gap: 10px; margin-bottom: 10px; }
+      .muted { color: #8e8e93; font-size: 13px; }
+      .hidden { display: none !important; }
 
       .tab-bar {
         position: fixed;
@@ -216,35 +188,31 @@
         align-items: center;
         gap: 2px;
       }
-
       .tab.active { color: #007AFF; }
-
       .tab-icon { font-size: 20px; }
 
-      .hidden { display: none !important; }
-
-      .item {
-        padding: 10px 0;
-        border-top: 0.5px solid #e5e5ea;
+      .legend {
+        margin-top: 12px;
+        padding: 10px;
+        background: #fff;
+        border-radius: 12px;
       }
+      .legend-title { font-size: 12px; color: #8e8e93; margin-bottom: 6px; }
+      .legend-items { display: flex; flex-wrap: wrap; gap: 8px; }
+      .legend-item { display: flex; align-items: center; gap: 4px; }
+      .legend-dot { width: 12px; height: 12px; border-radius: 6px; }
+      .legend-text { font-size: 10px; color: #8e8e93; }
 
-      .item:first-child { border-top: 0; padding-top: 0; }
-
-      .item-title { font-size: 14px; font-weight: 600; color: #000; }
-      .item-meta { font-size: 12px; color: #8e8e93; margin-top: 2px; }
-
-      .status {
-        display: inline-block;
-        font-size: 11px;
-        padding: 2px 8px;
-        border-radius: 999px;
-        margin-top: 4px;
-        font-weight: 500;
+      .loading { display: flex; align-items: center; gap: 8px; margin: 12px 0; }
+      .spinner {
+        width: 40px;
+        height: 40px;
+        border: 3px solid #e5e5ea;
+        border-top-color: #007AFF;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
       }
-
-      .status.ok { background: #dcfce7; color: #166534; }
-      .status.warn { background: #fef3c7; color: #92400e; }
-      .status.bad { background: #fee2e2; color: #991b1b; }
+      @keyframes spin { to { transform: rotate(360deg); } }
 
       .home-indicator {
         position: fixed;
@@ -258,51 +226,34 @@
         z-index: 101;
       }
 
-      .site-list { display: flex; flex-direction: column; gap: 8px; }
-
-      .site-button {
+      input {
+        width: 100%;
+        border-radius: 10px;
+        border: none;
+        padding: 12px 16px;
+        font-size: 16px;
         background: #fff;
-        border-radius: 12px;
-        padding: 14px;
         box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-        border: 2px solid transparent;
+        margin-bottom: 10px;
       }
 
-      .site-button.active {
-        background: #e3f2fd;
-        border-color: #007AFF;
+      select {
+        width: 100%;
+        border-radius: 10px;
+        border: none;
+        padding: 12px 16px;
+        font-size: 16px;
+        background: #fff;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        margin-bottom: 10px;
       }
-
-      .site-name { font-size: 15px; font-weight: 600; color: #000; }
-      .site-meta { font-size: 13px; color: #8e8e93; margin-top: 4px; }
-
-      #loadingOverlay {
-        position: fixed;
-        top: 0; left: 0; right: 0; bottom: 0;
-        background: rgba(242,242,247,0.95);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 999;
-      }
-
-      .spinner {
-        width: 40px;
-        height: 40px;
-        border: 3px solid #e5e5ea;
-        border-top-color: #007AFF;
-        border-radius: 50%;
-        animation: spin 0.8s linear infinite;
-      }
-
-      @keyframes spin { to { transform: rotate(360deg); } }
     </style>
   </head>
   <body>
     <div id="loadingOverlay"><div class="spinner"></div></div>
 
-    <div class="shell">
-      <header class="top">
+    <div class="container">
+      <header class="header">
         <h1 id="pageTitle">Absensi</h1>
         <p id="topMeta">Sign in untuk lihat absensi</p>
       </header>
@@ -311,13 +262,9 @@
         <!-- Login Card -->
         <section id="loginCard" class="card">
           <h2>Login</h2>
-          <div class="row">
-            <input id="email" placeholder="Email" value="user@apsensi.local" style="margin-bottom:10px" />
-          </div>
-          <div class="row">
-            <input id="password" type="password" placeholder="Password" value="Password09" style="margin-bottom:10px" />
-          </div>
-          <button id="btnLogin">Sign In</button>
+          <input id="email" placeholder="Email" value="user@apsensi.local" />
+          <input id="password" type="password" placeholder="Password" value="Password09" />
+          <button class="btn btn-primary" id="btnLogin">Sign In</button>
           <p class="muted" style="margin-top:8px; text-align:center;">
             User: user@apsensi.local / Password09<br>
             HRD: harys@google.com / xcxcxc
@@ -327,98 +274,71 @@
         <!-- Dashboard (HRD Only) -->
         <section id="dashboardCard" class="hidden">
           <div class="section-label">Dashboard HRD</div>
-          <div class="stats-grid">
-            <div class="stat-card">
-              <div class="stat-number" id="kpiTotal">0</div>
-              <div class="stat-label">Total Absensi</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+            <div class="card" style="margin:0;padding:14px;">
+              <div style="font-size:28px;font-weight:700;color:#007AFF;" id="kpiTotal">0</div>
+              <div style="font-size:12px;color:#8e8e93;margin-top:4px;">Total Absensi</div>
             </div>
-            <div class="stat-card">
-              <div class="stat-number" style="color:#ff9500" id="kpiLate">0</div>
-              <div class="stat-label">Late</div>
+            <div class="card" style="margin:0;padding:14px;">
+              <div style="font-size:28px;font-weight:700;color:#ff9500;" id="kpiLate">0</div>
+              <div style="font-size:12px;color:#8e8e93;margin-top:4px;">Late</div>
             </div>
-            <div class="stat-card">
-              <div class="stat-number" style="color:#34c759" id="kpiLeave">0</div>
-              <div class="stat-label">Cuti</div>
+            <div class="card" style="margin:0;padding:14px;">
+              <div style="font-size:28px;font-weight:700;color:#34c759;" id="kpiLeave">0</div>
+              <div style="font-size:12px;color:#8e8e93;margin-top:4px;">Cuti</div>
             </div>
-            <div class="stat-card">
-              <div class="stat-number" style="color:#5856d6" id="kpiOvertime">0</div>
-              <div class="stat-label">Lembur</div>
+            <div class="card" style="margin:0;padding:14px;">
+              <div style="font-size:28px;font-weight:700;color:#5856d6;" id="kpiOvertime">0</div>
+              <div style="font-size:12px;color:#8e8e93;margin-top:4px;">Lembur</div>
             </div>
           </div>
-          <button class="secondary" id="btnRefresh" style="margin-bottom:12px">Refresh Dashboard</button>
+          <button class="btn btn-secondary" id="btnRefresh" style="margin-top:12px;">Refresh Dashboard</button>
         </section>
 
         <!-- Attendance Tab -->
         <section id="panel-attendance" class="tab-panel">
-          <div class="section-label">Pilih Project Site</div>
-          <div class="site-list" id="siteList"></div>
-
-          <div class="row" style="margin-top:16px">
-            <button id="btnCheckIn">Check-in</button>
-            <button class="secondary" id="btnCheckOut">Check-out</button>
+          <div class="row">
+            <button class="btn btn-primary flex-1" id="btnCheckIn">Check-in</button>
+            <button class="btn btn-secondary flex-1" id="btnCheckOut">Check-out</button>
           </div>
-
-          <div id="gpsStatus" class="muted" style="margin-top:12px; text-align:center;"></div>
+          <button class="btn btn-secondary flex-1" id="btnSync" style="margin-top:12px;">Sync Now</button>
+          <div id="gpsStatus" class="muted" style="margin-top:12px;text-align:center;"></div>
         </section>
 
-        <!-- Calendar/History Tab -->
-        <section id="panel-history" class="tab-panel hidden">
-          <div class="section-label">Calendar View</div>
+        <!-- Calendar (shown inside Attendance) -->
+        <section id="panel-calendar" class="tab-panel hidden">
           <div class="calendar" id="calendarContainer"></div>
-          <div id="selectedDayRecords" style="margin-top:16px"></div>
-        </section>
-
-        <!-- Late Tab -->
-        <section id="panel-late" class="tab-panel hidden">
-          <div class="section-label">History Late</div>
-          <div id="lateList"><p class="muted">Belum ada data late.</p></div>
-        </section>
-
-        <!-- Leave Tab -->
-        <section id="panel-leave" class="tab-panel hidden">
-          <div class="section-label">Request Cuti</div>
-          <div class="card">
-            <div class="row">
-              <input id="leaveStart" type="date" />
-              <input id="leaveEnd" type="date" />
+          <div style="margin-top:16px;" id="selectedDayRecords"></div>
+          <div class="legend">
+            <div class="legend-title">Legend:</div>
+            <div class="legend-items">
+              <div class="legend-item"><div class="legend-dot" style="background:#007AFF;"></div><span class="legend-text">Check-in</span></div>
+              <div class="legend-item"><div class="legend-dot" style="background:#ffcc00;"></div><span class="legend-text">Late</span></div>
+              <div class="legend-item"><div class="legend-dot" style="background:#ff3b30;"></div><span class="legend-text">No Check-in</span></div>
+              <div class="legend-item"><div class="legend-dot" style="background:#8e8e93;"></div><span class="legend-text">No Check-out</span></div>
+              <div class="legend-item"><span class="legend-text" style="color:#ff3b30;font-weight:600;">Red Text = Holiday</span></div>
             </div>
-            <div class="row">
-              <select id="leaveType" style="margin-bottom:10px">
-                <option value="annual">Annual</option>
-                <option value="sick">Sick</option>
-                <option value="urgent">Urgent</option>
-              </select>
-            </div>
-            <input id="leaveNote" placeholder="Catatan cuti" style="margin-bottom:10px" />
-            <button id="btnSubmitLeave">Submit Cuti</button>
           </div>
-
-          <div class="section-label" style="margin-top:16px">Riwayat Cuti</div>
-          <div id="leaveList"><p class="muted">Belum ada data cuti.</p></div>
         </section>
 
-        <!-- Overtime Tab -->
-        <section id="panel-overtime" class="tab-panel hidden">
-          <div class="section-label">Request Lembur</div>
-          <div class="card">
-            <div class="row">
-              <input id="otDate" type="date" />
-              <input id="otHours" type="number" min="1" step="0.5" placeholder="Jam" />
-            </div>
-            <input id="otNote" placeholder="Catatan lembur" style="margin-bottom:10px" />
-            <button id="btnSubmitOvertime">Submit Lembur</button>
-          </div>
+        <!-- Requests Tab -->
+        <section id="panel-requests" class="tab-panel hidden">
+          <div class="section-label">Requests</div>
+          <div id="requestsList"></div>
+        </section>
 
-          <div class="section-label" style="margin-top:16px">Riwayat Lembur</div>
-          <div id="overtimeList"><p class="muted">Belum ada data lembur.</p></div>
+        <!-- Approvals Tab -->
+        <section id="panel-approvals" class="tab-panel hidden">
+          <div class="section-label">Approvals</div>
+          <div id="approvalsList"></div>
         </section>
 
         <!-- Settings Tab -->
         <section id="panel-settings" class="tab-panel hidden">
           <div class="section-label">Settings</div>
           <div class="card">
-            <p id="userInfo" style="margin-bottom:12px"></p>
-            <button class="destructive" id="btnLogout">Logout</button>
+            <p id="userInfo" style="margin-bottom:12px;"></p>
+            <button class="btn btn-destructive flex-1" id="btnLogout">Logout</button>
           </div>
         </section>
       </main>
@@ -428,17 +348,17 @@
           <span class="tab-icon">📍</span>
           Absensi
         </button>
-        <button class="tab" data-tab="history">
+        <button class="tab" data-tab="calendar">
           <span class="tab-icon">📅</span>
-          History
+          Calendar
         </button>
-        <button class="tab" data-tab="late">
-          <span class="tab-icon">⏰</span>
-          Late
-        </button>
-        <button class="tab" data-tab="leave">
+        <button class="tab" data-tab="requests">
           <span class="tab-icon">📋</span>
-          Cuti
+          Requests
+        </button>
+        <button class="tab" data-tab="approvals">
+          <span class="tab-icon">✅</span>
+          Approvals
         </button>
         <button class="tab" data-tab="settings">
           <span class="tab-icon">⚙️</span>

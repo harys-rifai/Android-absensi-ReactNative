@@ -213,15 +213,25 @@ function AbsensiScreen({ user, onLogout }: { user: EngineerUser; onLogout: () =>
       const withinGeofence = distance <= selectedSite.radiusMeters;
       const locationType = withinGeofence ? "onsite" : "offsite";
 
+      // Check for existing attendance today
+      const today = new Date().toISOString().split('T')[0];
+      const todayRecords = records.filter(r => r.check_in && r.check_in.startsWith(today));
+
       if (mode === "check-in") {
-        await saveCheckInLocal(user.id, latitude, longitude, locationType);
-      } else {
-        const updated = await saveCheckOutLocal(user.id, latitude, longitude, locationType);
-        if (!updated) {
-          Alert.alert("Check-out Failed", "No open check-in record found.");
+        if (todayRecords.some(r => !r.check_out)) {
+          Alert.alert("Check-in Failed", "You already have an active check-in today. Please check-out first.");
           setIsSubmitting(false);
           return;
         }
+        await saveCheckInLocal(user.id, latitude, longitude, locationType);
+      } else {
+        const hasOpenCheckin = todayRecords.some(r => !r.check_out);
+        if (!hasOpenCheckin) {
+          Alert.alert("Check-out Failed", "No open check-in record found for today.");
+          setIsSubmitting(false);
+          return;
+        }
+        await saveCheckOutLocal(user.id, latitude, longitude, locationType);
       }
       setLastMessage(`${mode === "check-in" ? "Check-in" : "Check-out"} saved locally (${locationType === "onsite" ? "inside area" : "outside area"}, distance ${Math.round(distance)}m, accuracy ${Math.round(accuracy || 0)}m).`);
       await runSync();

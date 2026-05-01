@@ -403,23 +403,44 @@ export const getLocalAttendanceForUser = async (
   employeeId: number
 ): Promise<AttendanceRecord[]> => {
   if (isWeb) {
-    return webStorage.attendance
-      .filter((a) => a.employee_id === employeeId)
-      .map((row) => ({
-        id: row.id,
-        employee_id: row.employee_id,
-        check_in: row.check_in,
-        check_out: row.check_out,
-        latitude: row.latitude,
-        longitude: row.longitude,
-        location_type: row.location_type,
-        synced: row.synced === 1,
-        client_ref: row.client_ref,
-      }))
-      .sort((a, b) =>
-        new Date(b.check_in || b.check_out || 0).getTime() -
-        new Date(a.check_in || a.check_out || 0).getTime()
-      );
+    const filtered = webStorage.attendance.filter((a) => a.employee_id === employeeId);
+
+    // Deduplicate: keep only one record per day (earliest check-in with check-out)
+    const byDate = new Map<string, typeof filtered>();
+    filtered.forEach((record) => {
+      if (!record.check_in) return;
+      const date = record.check_in.split('T')[0];
+      if (!byDate.has(date)) {
+        byDate.set(date, []);
+      }
+      byDate.get(date)!.push(record);
+    });
+
+    const deduped: AttendanceRecord[] = [];
+    byDate.forEach((records, date) => {
+      // Keep the first record that has both check-in and check-out, or the earliest
+      const withBoth = records.find(r => r.check_in && r.check_out);
+      const toKeep = withBoth || records.sort((a, b) =>
+        new Date(a.check_in || 0).getTime() - new Date(b.check_in || 0).getTime()
+      )[0];
+
+      deduped.push({
+        id: toKeep.id,
+        employee_id: toKeep.employee_id,
+        check_in: toKeep.check_in,
+        check_out: toKeep.check_out,
+        latitude: toKeep.latitude,
+        longitude: toKeep.longitude,
+        location_type: toKeep.location_type,
+        synced: toKeep.synced === 1,
+        client_ref: toKeep.client_ref,
+      });
+    });
+
+    return deduped.sort((a, b) =>
+      new Date(b.check_in || b.check_out || 0).getTime() -
+      new Date(a.check_in || a.check_out || 0).getTime()
+    );
   }
 
   try {
@@ -428,17 +449,39 @@ export const getLocalAttendanceForUser = async (
       'SELECT * FROM attendance WHERE employee_id = ? ORDER BY check_in DESC',
       [employeeId]
     );
-    return rows.map((row) => ({
-      id: row.id,
-      employee_id: row.employee_id,
-      check_in: row.check_in,
-      check_out: row.check_out,
-      latitude: row.latitude,
-      longitude: row.longitude,
-      location_type: row.location_type,
-      synced: row.synced === 1,
-      client_ref: row.client_ref,
-    }));
+
+    // Deduplicate by date (keep only one per day)
+    const byDate = new Map<string, typeof rows>();
+    rows.forEach((row) => {
+      if (!row.check_in) return;
+      const date = row.check_in.split('T')[0];
+      if (!byDate.has(date)) {
+        byDate.set(date, []);
+      }
+      byDate.get(date)!.push(row);
+    });
+
+    const deduped: AttendanceRecord[] = [];
+    byDate.forEach((records) => {
+      const withBoth = records.find(r => r.check_in && r.check_out);
+      const toKeep = withBoth || records[0];
+      deduped.push({
+        id: toKeep.id,
+        employee_id: toKeep.employee_id,
+        check_in: toKeep.check_in,
+        check_out: toKeep.check_out,
+        latitude: toKeep.latitude,
+        longitude: toKeep.longitude,
+        location_type: toKeep.location_type,
+        synced: toKeep.synced === 1,
+        client_ref: toKeep.client_ref,
+      });
+    });
+
+    return deduped.sort((a, b) =>
+      new Date(b.check_in || b.check_out || 0).getTime() -
+      new Date(a.check_in || a.check_out || 0).getTime()
+    );
   } catch (error) {
     console.error("Get local attendance error:", error);
     return [];

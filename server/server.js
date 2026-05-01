@@ -45,6 +45,8 @@ app.get("/api", (_req, res) => {
       "/overtime/request",
       "/dashboard",
       "/sync/attendance",
+      "/news",
+      "/news/create"
     ],
   });
 });
@@ -541,6 +543,47 @@ app.get("/attendance/export", async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Attendance API running on http://localhost:${PORT}`);
+app.get("/news", async (_req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT n.*, e.name AS author_name
+       FROM news n
+       LEFT JOIN employee e ON e.id = n.author_id
+       WHERE n.is_active = TRUE
+       ORDER BY n.published_at DESC`
+    );
+    res.json(result.rows);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to fetch news";
+    res.status(500).json({ error: message });
+  }
+});
+
+app.post("/news/create", async (req, res) => {
+  try {
+    const { title, content, image_url, author_id } = req.body;
+    if (!title || !content || !author_id) {
+      res.status(400).json({ error: "title, content, and author_id are required." });
+      return;
+    }
+
+    const result = await pool.query(
+      `INSERT INTO news (title, content, image_url, author_id)
+       VALUES ($1, $2, $3, $4)
+       RETURNING *`,
+      [title, content, image_url || null, author_id]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to create news";
+    res.status(500).json({ error: message });
+  }
+});
+
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`Attendance API running on http://0.0.0.0:${PORT}`);
+  console.log(`For Android USB debugging, run: adb reverse tcp:${PORT} tcp:${PORT}`);
+  console.log(`Then the app can access the API via http://localhost:${PORT}`);
 });

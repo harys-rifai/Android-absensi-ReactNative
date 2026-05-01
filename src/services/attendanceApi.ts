@@ -11,6 +11,17 @@ type LoginPayload = {
   password: string;
 };
 
+export type NewsItem = {
+  id?: number;
+  remote_id?: number;
+  title: string;
+  content: string;
+  image_url?: string;
+  author_name?: string;
+  published_at?: string;
+  synced?: boolean;
+};
+
 export const loginUser = async (
   payload: LoginPayload
 ): Promise<EngineerUser> => {
@@ -59,4 +70,12 @@ export const syncAttendanceRecords = async (
 
   const result = (await response.json()) as { syncedClientRefs: string[] };
   return result.syncedClientRefs;
+};
+
+export const fetchNews = async (): Promise<NewsItem[]> => {
+  const response = await fetch(`${API_BASE_URL}/news`);
+  if (!response.ok) {
+    throw new Error("Gagal mengambil berita dari server.");
+  }
+  return (await response.json()) as NewsItem[];
 };

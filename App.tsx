@@ -16,6 +16,7 @@ import {
 import { PROJECT_SITES } from "./src/constants/sites";
 import {
   fetchAttendanceRecords,
+  fetchNews,
   loginUser,
   syncAttendanceRecords,
 } from "./src/services/attendanceApi";
@@ -28,12 +29,15 @@ import { haversineDistanceMeters } from "./src/utils/geofence";
 import {
   cacheSignedInUser,
   getLocalAttendanceForUser,
+  getLocalNews,
   getUnsyncedAttendance,
   initializeLocalDb,
   insertSyncLog,
   markAttendanceSynced,
+  NewsItem,
   saveCheckInLocal,
   saveCheckOutLocal,
+  saveNewsLocalBatch,
 } from "./src/services/localDb";
 
 const formatTime = (iso: string): string => {
@@ -49,8 +53,10 @@ export default function App() {
   const [user, setUser] = useState<EngineerUser | null>(null);
   const [selectedSiteId, setSelectedSiteId] = useState(PROJECT_SITES[0].id);
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
+  const [news, setNews] = useState<NewsItem[]>([]);
   const [isBooting, setIsBooting] = useState(true);
   const [isLoadingRecords, setIsLoadingRecords] = useState(false);
+  const [isLoadingNews, setIsLoadingNews] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastMessage, setLastMessage] = useState(
@@ -73,6 +79,20 @@ export default function App() {
       setLastMessage("Mode offline: menampilkan data dari SQLite lokal.");
     } finally {
       setIsLoadingRecords(false);
+    }
+  }, []);
+
+  const loadNews = useCallback(async () => {
+    setIsLoadingNews(true);
+    try {
+      const remoteNews = await fetchNews();
+      setNews(remoteNews);
+      await saveNewsLocalBatch(remoteNews);
+    } catch {
+      const localNews = await getLocalNews();
+      setNews(localNews);
+    } finally {
+      setIsLoadingNews(false);
     }
   }, []);
 
@@ -119,10 +139,11 @@ export default function App() {
   useEffect(() => {
     const boot = async () => {
       await initializeLocalDb();
+      await loadNews();
       setIsBooting(false);
     };
     void boot();
-  }, []);
+  }, [loadNews]);
 
   useEffect(() => {
     if (!user) {
@@ -130,9 +151,10 @@ export default function App() {
     }
     const timer = setInterval(() => {
       void runSync();
+      void loadNews();
     }, 15 * 60 * 1000);
     return () => clearInterval(timer);
-  }, [runSync, user]);
+  }, [runSync, loadNews, user]);
 
   const handleLogin = async () => {
     const email = emailInput.trim().toLowerCase();
@@ -148,6 +170,7 @@ export default function App() {
       setUser(signedUser);
       await cacheSignedInUser(signedUser);
       await loadAttendance(signedUser);
+      await loadNews();
       await runSync(signedUser);
       setLastMessage(`Sign-in berhasil sebagai ${signedUser.role}.`);
     } catch (error) {
@@ -334,6 +357,17 @@ export default function App() {
               {isSyncing ? "Sync..." : "Sync Sekarang"}
             </Text>
           </Pressable>
+          <Pressable
+            style={[styles.secondaryButton, styles.flexButton]}
+            disabled={isLoadingNews}
+            onPress={() => {
+              void loadNews();
+            }}
+          >
+            <Text style={styles.secondaryButtonText}>
+              {isLoadingNews ? "Loading..." : "Refresh News"}
+            </Text>
+          </Pressable>
           {user.role === "hrd" ? (
             <Pressable
               style={[styles.secondaryButton, styles.flexButton]}
@@ -357,6 +391,37 @@ export default function App() {
         ) : null}
 
         <Text style={styles.infoText}>{lastMessage}</Text>
+
+        <Text style={styles.sectionLabel}>Berita & Informasi</Text>
+        {isLoadingNews ? (
+          <ActivityIndicator />
+        ) : (
+          <FlatList
+            data={news}
+            keyExtractor={(item) => String(item.remote_id || item.id)}
+            scrollEnabled={false}
+            ListEmptyComponent={
+              <Text style={styles.emptyText}>Belum ada berita.</Text>
+            }
+            renderItem={({ item }) => (
+              <View style={styles.newsCard}>
+                <Text style={styles.newsTitle}>{item.title}</Text>
+                <Text style={styles.newsContent}>{item.content}</Text>
+                {item.author_name ? (
+                  <Text style={styles.newsAuthor}>Oleh: {item.author_name}</Text>
+                ) : null}
+                {item.published_at ? (
+                  <Text style={styles.newsDate}>
+                    {new Date(item.published_at).toLocaleString("id-ID", {
+                      dateStyle: "medium",
+                      timeStyle: "short",
+                    })}
+                  </Text>
+                ) : null}
+              </View>
+            )}
+          />
+        )}
 
         <Text style={styles.sectionLabel}>Riwayat absensi</Text>
         {isLoadingRecords ? (
@@ -542,5 +607,35 @@ const styles = StyleSheet.create({
   },
   warnText: {
     color: "#b45309",
+  },
+  newsCard: {
+    backgroundColor: "#ffffff",
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+  },
+  newsTitle: {
+    fontWeight: "700",
+    fontSize: 16,
+    color: "#111827",
+    marginBottom: 4,
+  },
+  newsContent: {
+    color: "#4b5563",
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 6,
+  },
+  newsAuthor: {
+    color: "#6b7280",
+    fontSize: 12,
+    fontStyle: "italic",
+  },
+  newsDate: {
+    color: "#6b7280",
+    fontSize: 12,
+    marginTop: 2,
   },
 });

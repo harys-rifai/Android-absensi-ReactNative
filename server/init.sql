@@ -57,3 +57,27 @@ WHERE e.email = 'user@apsensi.local'
       AND l.start_date = CURRENT_DATE - INTERVAL '7 day'
       AND l.end_date = CURRENT_DATE - INTERVAL '6 day'
   );
+
+CREATE TABLE IF NOT EXISTS news (
+  id SERIAL PRIMARY KEY,
+  title VARCHAR(200) NOT NULL,
+  content TEXT NOT NULL,
+  image_url TEXT,
+  author_id INT REFERENCES employee(id),
+  published_at TIMESTAMPTZ DEFAULT NOW(),
+  is_active BOOLEAN DEFAULT TRUE
+);
+
+INSERT INTO news (title, content, author_id)
+SELECT 'Selamat Datang di Aplikasi Absensi', 'Aplikasi ini memungkinkan Anda untuk melakukan absensi dengan sistem hybrid SQLite dan PostgreSQL.', e.id
+FROM employee e
+WHERE e.email = 'hrd@apsensi.local'
+  AND NOT EXISTS (SELECT 1 FROM news WHERE title = 'Selamat Datang di Aplikasi Absensi')
+LIMIT 1;
+
+INSERT INTO news (title, content, author_id)
+SELECT 'Cara Menggunakan Fitur Absensi', '1. Buka aplikasi\n2. Pilih site project\n3. Tekan tombol Check-in\n4. Pastikan GPS aktif\n5. Tunggu notifikasi sukses', e.id
+FROM employee e
+WHERE e.email = 'hrd@apsensi.local'
+  AND NOT EXISTS (SELECT 1 FROM news WHERE title = 'Cara Menggunakan Fitur Absensi')
+LIMIT 1;

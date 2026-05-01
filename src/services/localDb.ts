@@ -39,6 +39,16 @@ export const initializeLocalDb = async (): Promise<void> => {
       message TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE TABLE IF NOT EXISTS news (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      remote_id INTEGER UNIQUE,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      image_url TEXT,
+      author_name TEXT,
+      published_at TEXT,
+      synced INTEGER DEFAULT 0
+    );
   `);
 };
 
@@ -189,5 +199,61 @@ export const getLocalAttendanceForUser = async (
     location_type: row.location_type,
     synced: toBoolean(row.synced),
     client_ref: row.client_ref,
+  }));
+};
+
+export type NewsItem = {
+  id?: number;
+  remote_id?: number;
+  title: string;
+  content: string;
+  image_url?: string;
+  author_name?: string;
+  published_at?: string;
+  synced?: boolean;
+};
+
+export const saveNewsLocal = async (news: NewsItem): Promise<void> => {
+  const db = await dbPromise;
+  await db.runAsync(
+    `INSERT OR REPLACE INTO news (remote_id, title, content, image_url, author_name, published_at, synced)
+     VALUES (?, ?, ?, ?, ?, ?, 1)`,
+    [news.remote_id || null, news.title, news.content, news.image_url || null, news.author_name || null, news.published_at || null]
+  );
+};
+
+export const saveNewsLocalBatch = async (newsItems: NewsItem[]): Promise<void> => {
+  const db = await dbPromise;
+  for (const news of newsItems) {
+    await db.runAsync(
+      `INSERT OR REPLACE INTO news (remote_id, title, content, image_url, author_name, published_at, synced)
+       VALUES (?, ?, ?, ?, ?, ?, 1)`,
+      [news.remote_id || null, news.title, news.content, news.image_url || null, news.author_name || null, news.published_at || null]
+    );
+  }
+};
+
+export const getLocalNews = async (): Promise<NewsItem[]> => {
+  const db = await dbPromise;
+  const rows = await db.getAllAsync<{
+    id: number;
+    remote_id: number | null;
+    title: string;
+    content: string;
+    image_url: string | null;
+    author_name: string | null;
+    published_at: string | null;
+    synced: number;
+  }>(`SELECT * FROM news ORDER BY published_at DESC`);
+
+  return rows.map((row) => ({
+    id: row.id,
+    remote_id: row.remote_id ?? undefined,
+    title: row.title,
+    content: row.content,
+    image_url: row.image_url ?? undefined,
+    author_name: row.author_name ?? undefined,
+    published_at: row.published_at ?? undefined,
+    synced: toBoolean(row.synced),
   }));
 };

@@ -1,276 +1,454 @@
 <!doctype html>
-<html lang="en">
+<html lang="id">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Mobile Dashboard Absensi</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Absensi App</title>
     <style>
       :root { color-scheme: light; }
-      * { box-sizing: border-box; }
+      * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
       body {
         font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Inter", Arial, sans-serif;
-        margin: 0;
-        color: #0f172a;
-        background:
-          radial-gradient(1200px 600px at 50% -20%, #c7d2fe 0%, #e2e8f0 45%, #dbeafe 100%);
+        margin:0;
+        color: #000;
+        background: #f2f2f7;
         min-height: 100vh;
-        display: grid;
-        place-items: center;
-        padding: 18px 10px;
+        overflow-x: hidden;
       }
+
       .shell {
-        width: min(390px, calc(100vw - 16px));
-        max-width: 100%;
-        min-height: min(844px, calc(100vh - 20px));
-        background: linear-gradient(180deg, #f8fbff 0%, #f3f6fb 100%);
-        border-radius: 42px;
-        border: 10px solid #0f172a;
-        box-shadow:
-          0 30px 70px rgba(15, 23, 42, 0.35),
-          inset 0 1px 0 rgba(255, 255, 255, 0.75);
-        overflow: hidden;
+        width: 100%;
+        max-width: 430px;
+        min-height: 100vh;
+        margin: 0 auto;
+        background: #f2f2f7;
         position: relative;
+        padding-bottom: 83px;
       }
-      @media (min-width: 760px) {
-        .shell {
-          width: 412px;
-          min-height: 892px;
-        }
-      }
-      @media (max-height: 760px), (max-width: 430px) {
-        body { padding: 0; }
-        .shell {
-          width: 100vw;
-          min-height: 100vh;
-          border-radius: 0;
-          border: 0;
-          box-shadow: none;
-        }
-        .island,
-        .home-indicator {
-          display: none;
-        }
-      }
+
       .top {
-        color: #0f172a;
-        padding: max(env(safe-area-inset-top), 16px) 16px 10px;
-        background: linear-gradient(140deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.62));
-        backdrop-filter: blur(14px);
-        border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        padding: max(env(safe-area-inset-top), 12px) 16px 10px;
+        background: rgba(242,242,247,0.95);
+        backdrop-filter: blur(20px);
+        border-bottom: 0.5px solid rgba(0,0,0,0.1);
       }
-      .island {
-        width: 124px;
-        height: 30px;
-        margin: 2px auto 14px;
-        border-radius: 999px;
-        background: #020617;
-        box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.12);
-      }
-      .top h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
-      .top p { margin: 6px 0 0; font-size: 13px; opacity: 0.75; }
+
+      .top h1 { margin: 0; font-size: 24px; font-weight: 700; }
+      .top p { margin: 4px 0 0; font-size: 13px; color: #8e8e93; }
+
       .content {
-        padding: 12px 14px 118px;
-        overflow: auto;
-        height: calc(100% - 114px);
+        padding: 12px 16px;
       }
+
       .card {
-        background: rgba(255, 255, 255, 0.72);
-        border-radius: 20px;
+        background: #fff;
+        border-radius: 12px;
+        padding: 14px;
+        margin-bottom: 10px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+      }
+
+      .card h2 { margin: 0 0 10px; font-size: 16px; font-weight: 600; }
+
+      .muted { color: #8e8e93; font-size: 13px; }
+
+      .section-label {
+        font-size: 16px;
+        font-weight: 600;
+        color: #000;
+        margin: 16px 0 10px;
+        padding-left: 4px;
+      }
+
+      .stats-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-bottom: 12px;
+      }
+
+      .stat-card {
+        background: #fff;
+        border-radius: 12px;
+        padding: 14px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+      }
+
+      .stat-number {
+        font-size: 28px;
+        font-weight: 700;
+        color: #007AFF;
+      }
+
+      .stat-label {
+        font-size: 12px;
+        color: #8e8e93;
+        margin-top: 4px;
+      }
+
+      .calendar {
+        background: #fff;
+        border-radius: 12px;
         padding: 14px;
         margin-bottom: 12px;
-        border: 1px solid rgba(226, 232, 240, 0.85);
-        backdrop-filter: blur(14px);
-        box-shadow: 0 7px 22px rgba(15, 23, 42, 0.06);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
       }
-      .card h2 { margin: 0 0 10px; font-size: 15px; }
-      .muted { color: #6b7280; font-size: 12px; }
-      .row { display: flex; gap: 8px; margin-bottom: 8px; }
-      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-      .tabs {
-        position: absolute;
-        left: 12px;
-        right: 12px;
-        bottom: calc(max(env(safe-area-inset-bottom), 10px) + 18px);
-        z-index: 30;
-        display: grid;
-        grid-template-columns: repeat(5, minmax(0, 1fr));
-        gap: 6px;
-        background: rgba(15, 23, 42, 0.86);
-        border-radius: 20px;
-        padding: 8px;
-        backdrop-filter: blur(12px);
-        box-shadow: 0 14px 30px rgba(2, 6, 23, 0.35);
+
+      .calendar-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
       }
-      .tab {
-        border: 0;
-        background: transparent;
-        color: #cbd5e1;
-        border-radius: 12px;
-        padding: 9px 6px;
-        font-size: 11px;
+
+      .calendar-title { font-size: 16px; font-weight: 600; }
+
+      .calendar-nav {
+        color: #007AFF;
+        font-size: 18px;
+        background: none;
+        border: none;
         cursor: pointer;
+        padding: 4px 8px;
+      }
+
+      .calendar-days {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 2px;
+        text-align: center;
+      }
+
+      .calendar-day-header {
+        font-size: 10px;
+        color: #8e8e93;
+        padding: 4px;
+      }
+
+      .calendar-day {
+        width: 36px;
+        height: 36px;
+        border-radius: 18px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        margin: 0 auto;
+        cursor: pointer;
+      }
+
+      .calendar-day.active {
+        background: #007AFF;
+        color: #fff;
+      }
+
+      .calendar-day.today {
+        border: 2px solid #007AFF;
+      }
+
+      .calendar-day.has-record {
+        background: #e3f2fd;
+        color: #007AFF;
         font-weight: 600;
       }
-      .tab.active {
-        background: rgba(255, 255, 255, 0.14);
-        color: #ffffff;
-      }
+
       input, button, select {
         width: 100%;
-        border-radius: 14px;
-        border: 1px solid #d1d5db;
-        padding: 10px 12px;
-        font-size: 14px;
-      }
-      button {
+        border-radius: 10px;
         border: 0;
-        background: linear-gradient(135deg, #2563eb, #3b82f6);
+        padding: 12px 16px;
+        font-size: 16px;
+        background: #fff;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+      }
+
+      button {
+        background: #007AFF;
         color: #fff;
         font-weight: 600;
         cursor: pointer;
+        box-shadow: 0 2px 4px rgba(0,122,255,0.3);
       }
-      button.ghost {
-        background: rgba(255, 255, 255, 0.9);
-        color: #1d4ed8;
-        border: 1px solid #bfdbfe;
+
+      button.secondary {
+        background: #fff;
+        color: #007AFF;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
       }
-      .hidden { display: none; }
-      .kpi {
-        padding: 11px;
-        border-radius: 14px;
-        background: linear-gradient(160deg, #dbeafe, #eff6ff);
-        border: 1px solid #bfdbfe;
+
+      button.destructive {
+        background: #fff;
+        color: #ff3b30;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
       }
-      .kpi .label { font-size: 11px; color: #1e3a8a; opacity: 0.85; }
-      .kpi .value { margin-top: 4px; font-size: 21px; font-weight: 700; color: #1e3a8a; letter-spacing: -0.02em; }
-      .item { border-top: 1px solid #e2e8f0; padding: 10px 0; }
-      .item:first-child { border-top: 0; padding-top: 0; }
-      .item .title { font-size: 14px; font-weight: 600; }
-      .item .meta { margin-top: 2px; font-size: 12px; color: #6b7280; }
-      .status { font-size: 11px; padding: 2px 8px; border-radius: 999px; display: inline-block; margin-top: 4px; }
-      .ok { background: #dcfce7; color: #166534; }
-      .warn { background: #fef3c7; color: #92400e; }
-      .bad { background: #fee2e2; color: #991b1b; }
-      pre { margin: 0; background: #0f172a; color: #e2e8f0; padding: 10px; border-radius: 12px; overflow: auto; min-height: 80px; font-size: 11px; }
-      .home-indicator {
-        position: absolute;
-        bottom: 6px;
+
+      .row { display: flex; gap: 10px; margin-bottom: 10px; }
+
+      .tab-bar {
+        position: fixed;
+        bottom: 0;
         left: 50%;
-        width: 130px;
-        height: 5px;
-        margin-left: -65px;
-        border-radius: 999px;
-        background: rgba(15, 23, 42, 0.75);
+        transform: translateX(-50%);
+        width: 100%;
+        max-width: 430px;
+        background: rgba(255,255,255,0.95);
+        backdrop-filter: blur(20px);
+        border-top: 0.5px solid rgba(0,0,0,0.1);
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        padding: 4px 0 calc(4px + env(safe-area-inset-bottom));
+        z-index: 100;
       }
+
+      .tab {
+        background: none;
+        border: none;
+        padding: 6px 4px;
+        font-size: 10px;
+        font-weight: 600;
+        color: #8e8e93;
+        cursor: pointer;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+      }
+
+      .tab.active { color: #007AFF; }
+
+      .tab-icon { font-size: 20px; }
+
+      .hidden { display: none !important; }
+
+      .item {
+        padding: 10px 0;
+        border-top: 0.5px solid #e5e5ea;
+      }
+
+      .item:first-child { border-top: 0; padding-top: 0; }
+
+      .item-title { font-size: 14px; font-weight: 600; color: #000; }
+      .item-meta { font-size: 12px; color: #8e8e93; margin-top: 2px; }
+
+      .status {
+        display: inline-block;
+        font-size: 11px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        margin-top: 4px;
+        font-weight: 500;
+      }
+
+      .status.ok { background: #dcfce7; color: #166534; }
+      .status.warn { background: #fef3c7; color: #92400e; }
+      .status.bad { background: #fee2e2; color: #991b1b; }
+
+      .home-indicator {
+        position: fixed;
+        bottom: 8px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 134px;
+        height: 5px;
+        background: rgba(0,0,0,0.25);
+        border-radius: 3px;
+        z-index: 101;
+      }
+
+      .site-list { display: flex; flex-direction: column; gap: 8px; }
+
+      .site-button {
+        background: #fff;
+        border-radius: 12px;
+        padding: 14px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        border: 2px solid transparent;
+      }
+
+      .site-button.active {
+        background: #e3f2fd;
+        border-color: #007AFF;
+      }
+
+      .site-name { font-size: 15px; font-weight: 600; color: #000; }
+      .site-meta { font-size: 13px; color: #8e8e93; margin-top: 4px; }
+
+      #loadingOverlay {
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(242,242,247,0.95);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 999;
+      }
+
+      .spinner {
+        width: 40px;
+        height: 40px;
+        border: 3px solid #e5e5ea;
+        border-top-color: #007AFF;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+
+      @keyframes spin { to { transform: rotate(360deg); } }
     </style>
   </head>
   <body>
+    <div id="loadingOverlay"><div class="spinner"></div></div>
+
     <div class="shell">
       <header class="top">
-        <div class="island"></div>
-        <h1>Dashboard Absensi</h1>
-        <p id="topMeta">Sign in untuk lihat absensi, cuti, lembur, dan data telat.</p>
+        <h1 id="pageTitle">Absensi</h1>
+        <p id="topMeta">Sign in untuk lihat absensi</p>
       </header>
+
       <main class="content">
+        <!-- Login Card -->
         <section id="loginCard" class="card">
           <h2>Login</h2>
           <div class="row">
-            <input id="email" placeholder="Email" value="user@apsensi.local" />
+            <input id="email" placeholder="Email" value="user@apsensi.local" style="margin-bottom:10px" />
           </div>
           <div class="row">
-            <input id="password" type="password" placeholder="Password" value="Password09" />
+            <input id="password" type="password" placeholder="Password" value="Password09" style="margin-bottom:10px" />
           </div>
-          <div class="row">
-            <button id="btnLogin">Sign In</button>
-          </div>
-          <div class="muted">Admin all view: harys@google.com / xcxcxc</div>
+          <button id="btnLogin">Sign In</button>
+          <p class="muted" style="margin-top:8px; text-align:center;">
+            User: user@apsensi.local / Password09<br>
+            HRD: harys@google.com / xcxcxc
+          </p>
         </section>
 
-        <section id="dashboard" class="hidden">
+        <!-- Dashboard (HRD Only) -->
+        <section id="dashboardCard" class="hidden">
+          <div class="section-label">Dashboard HRD</div>
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-number" id="kpiTotal">0</div>
+              <div class="stat-label">Total Absensi</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-number" style="color:#ff9500" id="kpiLate">0</div>
+              <div class="stat-label">Late</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-number" style="color:#34c759" id="kpiLeave">0</div>
+              <div class="stat-label">Cuti</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-number" style="color:#5856d6" id="kpiOvertime">0</div>
+              <div class="stat-label">Lembur</div>
+            </div>
+          </div>
+          <button class="secondary" id="btnRefresh" style="margin-bottom:12px">Refresh Dashboard</button>
+        </section>
+
+        <!-- Attendance Tab -->
+        <section id="panel-attendance" class="tab-panel">
+          <div class="section-label">Pilih Project Site</div>
+          <div class="site-list" id="siteList"></div>
+
+          <div class="row" style="margin-top:16px">
+            <button id="btnCheckIn">Check-in</button>
+            <button class="secondary" id="btnCheckOut">Check-out</button>
+          </div>
+
+          <div id="gpsStatus" class="muted" style="margin-top:12px; text-align:center;"></div>
+        </section>
+
+        <!-- Calendar/History Tab -->
+        <section id="panel-history" class="tab-panel hidden">
+          <div class="section-label">Calendar View</div>
+          <div class="calendar" id="calendarContainer"></div>
+          <div id="selectedDayRecords" style="margin-top:16px"></div>
+        </section>
+
+        <!-- Late Tab -->
+        <section id="panel-late" class="tab-panel hidden">
+          <div class="section-label">History Late</div>
+          <div id="lateList"><p class="muted">Belum ada data late.</p></div>
+        </section>
+
+        <!-- Leave Tab -->
+        <section id="panel-leave" class="tab-panel hidden">
+          <div class="section-label">Request Cuti</div>
           <div class="card">
-            <h2>Summary</h2>
-            <div class="grid">
-              <div class="kpi"><div class="label">Total Absensi</div><div class="value" id="kpiTotal">0</div></div>
-              <div class="kpi"><div class="label">Late</div><div class="value" id="kpiLate">0</div></div>
-              <div class="kpi"><div class="label">Active Shift</div><div class="value" id="kpiActive">0</div></div>
-              <div class="kpi"><div class="label">Cuti</div><div class="value" id="kpiLeave">0</div></div>
-              <div class="kpi"><div class="label">Lembur</div><div class="value" id="kpiOvertime">0</div></div>
-            </div>
-          </div>
-
-          <div class="card tab-panel" id="panel-attendance">
-            <h2>Absensi GPS</h2>
-            <div class="row">
-              <button id="btnCheckIn">Check-in (GPS)</button>
-              <button class="ghost" id="btnCheckOut">Check-out (GPS)</button>
-            </div>
-            <div class="row">
-              <button class="ghost" id="btnRefresh">Refresh Dashboard</button>
-            </div>
-          </div>
-
-          <div class="card tab-panel hidden" id="panel-late">
-            <h2>History Absensi Late</h2>
-            <div id="lateList" class="muted">Belum ada data late.</div>
-          </div>
-
-          <div class="card tab-panel hidden" id="panel-leave">
-            <h2>Form Request Cuti</h2>
             <div class="row">
               <input id="leaveStart" type="date" />
               <input id="leaveEnd" type="date" />
             </div>
             <div class="row">
-              <select id="leaveType">
+              <select id="leaveType" style="margin-bottom:10px">
                 <option value="annual">Annual</option>
                 <option value="sick">Sick</option>
                 <option value="urgent">Urgent</option>
               </select>
-              <input id="leaveNote" placeholder="Catatan cuti" />
             </div>
-            <div class="row">
-              <button id="btnSubmitLeave">Submit Cuti</button>
-            </div>
+            <input id="leaveNote" placeholder="Catatan cuti" style="margin-bottom:10px" />
+            <button id="btnSubmitLeave">Submit Cuti</button>
           </div>
 
-          <div class="card tab-panel hidden" id="panel-overtime">
-            <h2>Form Request Lembur</h2>
+          <div class="section-label" style="margin-top:16px">Riwayat Cuti</div>
+          <div id="leaveList"><p class="muted">Belum ada data cuti.</p></div>
+        </section>
+
+        <!-- Overtime Tab -->
+        <section id="panel-overtime" class="tab-panel hidden">
+          <div class="section-label">Request Lembur</div>
+          <div class="card">
             <div class="row">
               <input id="otDate" type="date" />
-              <input id="otHours" type="number" min="1" step="0.5" placeholder="Jam lembur" />
+              <input id="otHours" type="number" min="1" step="0.5" placeholder="Jam" />
             </div>
-            <div class="row">
-              <input id="otNote" placeholder="Catatan lembur" />
-            </div>
-            <div class="row">
-              <button id="btnSubmitOvertime">Submit Lembur</button>
-            </div>
+            <input id="otNote" placeholder="Catatan lembur" style="margin-bottom:10px" />
+            <button id="btnSubmitOvertime">Submit Lembur</button>
           </div>
 
-          <div class="card tab-panel hidden" id="panel-history">
-            <h2>History Absensi</h2>
-            <div id="attendanceList" class="muted">Belum ada data absensi.</div>
-            <h2 style="margin-top: 12px;">Riwayat Cuti</h2>
-            <div id="leaveList" class="muted">Belum ada data cuti.</div>
-            <h2 style="margin-top: 12px;">Riwayat Lembur</h2>
-            <div id="overtimeList" class="muted">Belum ada data lembur.</div>
-          </div>
+          <div class="section-label" style="margin-top:16px">Riwayat Lembur</div>
+          <div id="overtimeList"><p class="muted">Belum ada data lembur.</p></div>
         </section>
 
-        <section id="debugCard" class="card hidden">
-          <h2>Debug API Response</h2>
-          <pre id="output">{ "message": "Ready" }</pre>
+        <!-- Settings Tab -->
+        <section id="panel-settings" class="tab-panel hidden">
+          <div class="section-label">Settings</div>
+          <div class="card">
+            <p id="userInfo" style="margin-bottom:12px"></p>
+            <button class="destructive" id="btnLogout">Logout</button>
+          </div>
         </section>
       </main>
-      <nav id="bottomTabs" class="tabs hidden">
-        <button class="tab active" data-tab="attendance">Absensi</button>
-        <button class="tab" data-tab="late">Late</button>
-        <button class="tab" data-tab="leave">Cuti</button>
-        <button class="tab" data-tab="overtime">Lembur</button>
-        <button class="tab" data-tab="history">History</button>
+
+      <nav class="tab-bar" id="bottomTabs">
+        <button class="tab active" data-tab="attendance">
+          <span class="tab-icon">📍</span>
+          Absensi
+        </button>
+        <button class="tab" data-tab="history">
+          <span class="tab-icon">📅</span>
+          History
+        </button>
+        <button class="tab" data-tab="late">
+          <span class="tab-icon">⏰</span>
+          Late
+        </button>
+        <button class="tab" data-tab="leave">
+          <span class="tab-icon">📋</span>
+          Cuti
+        </button>
+        <button class="tab" data-tab="settings">
+          <span class="tab-icon">⚙️</span>
+          Settings
+        </button>
       </nav>
+
       <div class="home-indicator"></div>
     </div>
+
     <script src="/app.js"></script>
   </body>
 </html>

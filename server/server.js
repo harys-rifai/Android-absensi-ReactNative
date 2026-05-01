@@ -6,6 +6,46 @@ const pool = require("./db");
 const app = express();
 const PORT = Number(process.env.API_PORT || 4000);
 
+// Haversine distance calculation (in meters)
+const haversineDistanceMeters = (lat1, lon1, lat2, lon2) => {
+  const R = 6371000; // Earth's radius in meters
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+};
+
+// Project sites configuration
+const PROJECT_SITES = [
+  { id: "jkt-hq", name: "Jakarta HQ", latitude: -6.2001, longitude: 106.8167, radiusMeters: 150 },
+  { id: "bdg-plant", name: "Bandung Plant", latitude: -6.9147, longitude: 107.6098, radiusMeters: 200 },
+  { id: "sby-field", name: "Surabaya Field Office", latitude: -7.2575, longitude: 112.7521, radiusMeters: 200 },
+];
+
+// Server-side GPS validation
+const validateGpsLocation = (latitude, longitude) => {
+  if (!latitude || !longitude) return { valid: false, locationType: "unknown", distance: null };
+
+  let minDistance = Infinity;
+  let nearestSite = null;
+
+  for (const site of PROJECT_SITES) {
+    const distance = haversineDistanceMeters(latitude, longitude, site.latitude, site.longitude);
+    if (distance < minDistance) {
+      minDistance = distance;
+      nearestSite = site;
+    }
+  }
+
+  const locationType = minDistance <= nearestSite.radiusMeters ? "onsite" : "offsite";
+  return { valid: true, locationType, distance: Math.round(minDistance), site: nearestSite };
+};
+
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
@@ -145,14 +185,27 @@ app.get("/attendance/late", async (req, res) => {
 
 app.post("/attendance/check-in", async (req, res) => {
   try {
-    const { requesterId, latitude, longitude } = req.body;
+    const { requesterId, latitude, longitude, locationType: clientLocationType } = req.body;
     const id = Number(requesterId || 0);
     if (!id) {
       res.status(400).json({ error: "requesterId is required." });
       return;
     }
 
-    const locationType = req.body.locationType || "gps-mobile";
+    // Check for existing open check-in
+    const existing = await pool.query(
+      `SELECT id FROM attendance WHERE employee_id = $1 AND check_out IS NULL LIMIT 1`,
+      [id]
+    );
+    if (existing.rows.length > 0) {
+      res.status(400).json({ error: "You already have an active check-in. Please check-out first." });
+      return;
+    }
+
+    // Server-side GPS validation
+    const gpsValidation = validateGpsLocation(latitude, longitude);
+    const locationType = gpsValidation.valid ? gpsValidation.locationType : (clientLocationType || "gps-web");
+
     const clientRef = req.body.clientRef || `web-${id}-${Date.now()}`;
     const result = await pool.query(
       `INSERT INTO attendance (
@@ -161,8 +214,18 @@ app.post("/attendance/check-in", async (req, res) => {
       RETURNING *`,
       [id, latitude ?? null, longitude ?? null, locationType, clientRef]
     );
-    res.status(201).json(result.rows[0]);
+
+    // Add server validation info to response
+    const response = result.rows[0];
+    if (gpsValidation.valid) {
+      response.server_location_type = gpsValidation.locationType;
+      response.distance_to_site = gpsValidation.distance;
+      response.nearest_site = gpsValidation.site?.name;
+    }
+
+    res.status(201).json(response);
   } catch (error) {
+    console.error("Check-in error:", error);
     const message =
       error instanceof Error ? error.message : "Failed to check in attendance";
     res.status(500).json({ error: message });
@@ -171,14 +234,17 @@ app.post("/attendance/check-in", async (req, res) => {
 
 app.post("/attendance/check-out", async (req, res) => {
   try {
-    const { requesterId, latitude, longitude } = req.body;
+    const { requesterId, latitude, longitude, locationType: clientLocationType } = req.body;
     const id = Number(requesterId || 0);
     if (!id) {
       res.status(400).json({ error: "requesterId is required." });
       return;
     }
 
-    const locationType = req.body.locationType || "gps-mobile";
+    // Server-side GPS validation
+    const gpsValidation = validateGpsLocation(latitude, longitude);
+    const locationType = gpsValidation.valid ? gpsValidation.locationType : (clientLocationType || "gps-web");
+
     const open = await pool.query(
       `SELECT id
        FROM attendance
@@ -188,7 +254,7 @@ app.post("/attendance/check-out", async (req, res) => {
       [id]
     );
     if (open.rows.length === 0) {
-      res.status(400).json({ error: "No open check-in record found." });
+      res.status(400).json({ error: "No open check-in record found. Please check-in first." });
       return;
     }
 
@@ -197,13 +263,23 @@ app.post("/attendance/check-out", async (req, res) => {
        SET check_out = NOW(),
            latitude = COALESCE($1, latitude),
            longitude = COALESCE($2, longitude),
-           location_type = COALESCE($3, location_type)
+           location_type = $3
        WHERE id = $4
        RETURNING *`,
       [latitude ?? null, longitude ?? null, locationType, open.rows[0].id]
     );
-    res.json(updated.rows[0]);
+
+    // Add server validation info to response
+    const response = updated.rows[0];
+    if (gpsValidation.valid) {
+      response.server_location_type = gpsValidation.locationType;
+      response.distance_to_site = gpsValidation.distance;
+      response.nearest_site = gpsValidation.site?.name;
+    }
+
+    res.json(response);
   } catch (error) {
+    console.error("Check-out error:", error);
     const message =
       error instanceof Error ? error.message : "Failed to check out attendance";
     res.status(500).json({ error: message });
@@ -257,15 +333,80 @@ app.post("/leave/request", async (req, res) => {
       `INSERT INTO leave_request (
         employee_id, start_date, end_date, leave_type, status, note
       ) VALUES (
-        $1, $2, $3, $4, 'pending', $5
+        $1, $2, $3, $4, 'pending_manager', $5
       )
       RETURNING *`,
       [id, startDate, endDate, leaveType || "annual", note || null]
     );
     res.status(201).json(result.rows[0]);
   } catch (error) {
+    console.error("Leave request error:", error);
     const message =
       error instanceof Error ? error.message : "Failed to request leave";
+    res.status(500).json({ error: message });
+  }
+});
+
+// Approve leave by manager
+app.post("/leave/approve-manager/:id", async (req, res) => {
+  try {
+    const leaveId = Number(req.params.id || 0);
+    const { approverId } = req.body;
+
+    if (!leaveId || !approverId) {
+      res.status(400).json({ error: "leaveId and approverId are required." });
+      return;
+    }
+
+    const result = await pool.query(
+      `UPDATE leave_request
+       SET status = 'pending_hrd', manager_approved_by = $1, manager_approved_at = NOW()
+       WHERE id = $2 AND status = 'pending_manager'
+       RETURNING *`,
+      [approverId, leaveId]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: "Leave request not found or already processed." });
+      return;
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error("Manager approval error:", error);
+    const message = error instanceof Error ? error.message : "Failed to approve leave";
+    res.status(500).json({ error: message });
+  }
+});
+
+// Approve leave by HRD
+app.post("/leave/approve-hrd/:id", async (req, res) => {
+  try {
+    const leaveId = Number(req.params.id || 0);
+    const { approverId } = req.body;
+
+    if (!leaveId || !approverId) {
+      res.status(400).json({ error: "leaveId and approverId are required." });
+      return;
+    }
+
+    const result = await pool.query(
+      `UPDATE leave_request
+       SET status = 'approved', hrd_approved_by = $1, hrd_approved_at = NOW()
+       WHERE id = $2 AND status = 'pending_hrd'
+       RETURNING *`,
+      [approverId, leaveId]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: "Leave request not found or already processed." });
+      return;
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error("HRD approval error:", error);
+    const message = error instanceof Error ? error.message : "Failed to approve leave";
     res.status(500).json({ error: message });
   }
 });

@@ -1,7 +1,20 @@
 import { Platform } from "react-native";
 import { AttendanceRecord, EngineerUser, UserRole } from "../types/attendance";
 
-let API_BASE_URL = Platform.OS === "android" ? "http://10.0.2.2:4000" : "http://localhost:4000";
+// Default server IP - otomatis menggunakan IP ini
+const SERVER_IP = "192.168.1.21";
+const SERVER_PORT = "4000";
+
+// Default URL berdasarkan platform
+const getDefaultUrl = (): string => {
+  if (Platform.OS === "android") {
+    // Coba gunakan IP server langsung untuk USB debugging
+    return `http://${SERVER_IP}:${SERVER_PORT}`;
+  }
+  return "http://localhost:4000";
+};
+
+let API_BASE_URL = getDefaultUrl();
 
 export const setApiBaseUrl = (url: string): void => {
   API_BASE_URL = url;

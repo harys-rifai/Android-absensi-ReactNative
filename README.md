@@ -1,6 +1,41 @@
 # Hybrid Attendance App - Android & Web
 
-Aplikasi absensi hybrid menggunakan React Native dengan Expo, SQLite local database, dan PostgreSQL remote database dengan fitur auto-sync.
+Aplikasi absensi hybrid menggunakan React Native dengan Expo, SQLite local database, dan PostgreSQL remote database dengan fitur auto-sync. Dilengkapi dengan UI iPhone-style dan validasi GPS yang lebih baik.
+
+## 📱 Screenshots
+
+### Mobile App (iPhone UI)
+![Login Screen](imgs/mobile-login.png)
+![Attendance Screen](imgs/mobile-attendance.png)
+![Calendar History](imgs/mobile-calendar.png)
+![Dashboard HRD](imgs/mobile-dashboard.png)
+
+### Web Dashboard (iPhone Style)
+![Web Login](imgs/web-login.png)
+![Web Dashboard](imgs/web-dashboard.png)
+![Web Calendar](imgs/web-calendar.png)
+
+## 🆕 What's New (Latest Update)
+
+### 🔧 GPS & Attendance Fixes
+- **GPS Timeout & Accuracy Validation** - 30s timeout, rejects accuracy >100m
+- **Better Permission Handling** - Instructions to enable GPS in Settings
+- **Server-side GPS Validation** - Haversine formula validates location server-side
+- **Duplicate Check-in Prevention** - Backend blocks multiple active check-ins
+- **UUID Generation** - Proper unique IDs instead of Math.random()
+
+### 🎨 iPhone-Style UI
+- **SF Pro Font** - Native iOS font family
+- **iOS Colors** - #007AFF primary, #8e8e93 secondary, #f2f2f7 background
+- **Card Shadows** - Proper elevation and blur effects
+- **Calendar View** - Monthly calendar with attendance status dots
+- **Tab Navigation** - Bottom tab bar with icons
+
+### 👔 HRD Dashboard & Workflow
+- **HRD Dashboard** - Statistics cards (Total, Late, Leave, Overtime)
+- **Leave Approval Workflow** - pending_manager → pending_hrd → approved
+- **Role-based Access** - User, Manager, HRD, Admin roles
+- **Project Sites** - Jakarta HQ, Bandung Plant, Surabaya Field Office
 
 ## 📱 Fitur Utama
 
@@ -8,9 +43,12 @@ Aplikasi absensi hybrid menggunakan React Native dengan Expo, SQLite local datab
 - **Local SQLite Database** - Data tersimpan lokal untuk mode offline
 - **Remote PostgreSQL** - Sinkronisasi otomatis ke server
 - **News Feature** - Menampilkan berita/informasi terbaru dengan auto-sync
-- **Geofencing** - Validasi lokasi absensi berdasarkan radius site
+- **Geofencing** - Validasi lokasi absensi berdasarkan radius site (server & client)
 - **Offline-First** - Aplikasi tetap berjalan tanpa koneksi internet
 - **Auto-Sync** - Sinkronisasi otomatis setiap 15 menit
+- **iPhone-Style UI** - Interface mengikuti Human Interface Guidelines
+- **Calendar View** - Riwayat absensi dalam tampilan kalender
+- **HRD Dashboard** - Statistik dan approval cuti/lembur
 - **Server Connection Settings** - Konfigurasi koneksi server yang fleksibel
 
 ## 🏗️ Arsitektur
@@ -166,10 +204,10 @@ Aplikasi memiliki fitur **Server Connection Settings** untuk mengatur koneksi ke
 ```sql
 - employee (id, name, email, role, password_hash)
 - attendance (id, employee_id, check_in, check_out, latitude, longitude, location_type, synced, client_ref)
-- leave_request (id, employee_id, start_date, end_date, leave_type, status, note)
+- leave_request (id, employee_id, start_date, end_date, leave_type, status, note, manager_approved_by, manager_approved_at, hrd_approved_by, hrd_approved_at)
 - overtime_request (id, employee_id, overtime_date, hours, status, note, created_at)
 - news (id, title, content, image_url, author_id, published_at, is_active)
-- server_config (id, key, value, updated_at) -- New: Server connection settings
+- server_config (id, key, value, updated_at)
 ```
 
 ### SQLite (Local)
@@ -179,7 +217,7 @@ Aplikasi memiliki fitur **Server Connection Settings** untuk mengatur koneksi ke
 - attendance (id, employee_id, check_in, check_out, latitude, longitude, location_type, synced, client_ref)
 - sync_log (id, attendance_client_ref, status, message, created_at)
 - news (id, remote_id, title, content, image_url, author_name, published_at, synced)
-- server_config (id, key, value, updated_at) -- New: Server connection settings
+- server_config (id, key, value, updated_at)
 ```
 
 ## 👤 Demo Accounts
@@ -230,18 +268,42 @@ Body: {
 | `/health` | GET | Health check |
 | `/auth/login` | POST | User login |
 | `/attendance` | GET | Get attendance records |
-| `/attendance/check-in` | POST | Check-in |
-| `/attendance/check-out` | POST | Check-out |
+| `/attendance/check-in` | POST | Check-in (with GPS validation) |
+| `/attendance/check-out` | POST | Check-out (with GPS validation) |
 | `/attendance/late` | GET | Get late attendance |
 | `/leave` | GET | Get leave requests |
 | `/leave/request` | POST | Submit leave request |
+| `/leave/approve-manager/:id` | POST | Manager approval |
+| `/leave/approve-hrd/:id` | POST | HRD approval |
 | `/overtime` | GET | Get overtime requests |
 | `/overtime/request` | POST | Submit overtime request |
-| `/dashboard` | GET | Get dashboard summary |
+| `/dashboard` | GET | Get dashboard summary (HRD) |
 | `/sync/attendance` | POST | Sync local to remote |
 | `/news` | GET | Get news list |
 | `/news/create` | POST | Create new news |
 | `/attendance/export` | GET | Export to CSV (HRD) |
+
+## 🖼️ Folder Structure (Screenshots)
+
+```
+imgs/
+├── mobile-login.png          # Mobile login screen
+├── mobile-attendance.png     # Mobile attendance with site selection
+├── mobile-calendar.png       # Calendar view with attendance dots
+├── mobile-dashboard.png      # HRD dashboard with statistics
+├── mobile-history.png        # Attendance history list
+├── mobile-settings.png       # Server settings screen
+├── web-login.png            # Web login page
+├── web-dashboard.png         # Web HRD dashboard
+├── web-calendar.png         # Web calendar view
+└── web-attendance.png       # Web attendance page
+```
+
+Untuk menambahkan screenshot:
+1. Ambil screenshot aplikasi (Cmd+Shift+4 di macOS)
+2. Rename sesuai daftar di atas
+3. Masukkan ke folder `imgs/`
+4. Push ke repository
 
 ## 🐛 Troubleshooting
 
@@ -272,6 +334,18 @@ Body: {
 4. **Cek Firewall:** Pastikan port 4000 tidak diblokir firewall
 
 5. **Pastikan Android dan komputer di jaringan WiFi yang sama** (jika menggunakan IP address)
+
+### GPS Issues
+
+**GPS Timeout / Low Accuracy:**
+- Pastikan GPS aktif dan izinkan akses lokasi
+- Coba di area terbuka (luar ruangan)
+- Accuracy >100m akan menampilkan peringatan
+- Timeout 30 detik jika GPS tidak mendapat sinyal
+
+**Location Type Mismatch:**
+- Server melakukan validasi ulang lokasi (server-side validation)
+- Response mencakup `server_location_type` dan `distance_to_site`
 
 ### Server tidak bisa diakses
 
@@ -325,3 +399,10 @@ MIT License
 Harys Rifai - harysrifai@gmail.com
 
 Project Link: https://github.com/harysrifai/Android-absensi-ReactNative
+
+## 🙏 Acknowledgments
+
+- React Native & Expo Team
+- PostgreSQL Global Development Group
+- Expo Location for GPS functionality
+- SF Pro Font by Apple Inc.

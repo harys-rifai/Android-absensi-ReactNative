@@ -50,6 +50,29 @@ import {
 
 const Tab = createBottomTabNavigator();
 
+// Indonesian Holidays 2026 (sample - add more as needed)
+const HOLIDAYS_2026 = [
+  '2026-01-01', // New Year
+  '2026-01-29', // Chinese New Year
+  '2026-03-29', // Nyepi
+  '2026-04-03', // Good Friday
+  '2026-05-01', // Labor Day
+  '2026-05-13', // Ascension of Jesus
+  '2026-05-29', // Waisak
+  '2026-06-01', // Pancasila Day
+  '2026-06-06', // Eid al-Fitr (estimated)
+  '2026-06-07', // Eid al-Fitr (estimated)
+  '2026-08-17', // Independence Day
+  '2026-09-12', // Eid al-Adha (estimated)
+  '2026-10-01', // Islamic New Year (estimated)
+  '2026-12-25', // Christmas
+];
+
+const isHoliday = (date: Date): boolean => {
+  const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  return HOLIDAYS_2026.includes(dateStr);
+};
+
 const formatTime = (iso: string): string => {
   return new Date(iso).toLocaleString("en-US", {
     dateStyle: "medium",
@@ -62,11 +85,27 @@ function AbsensiScreen({ user, onLogout }: { user: EngineerUser; onLogout: () =>
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [lastMessage, setLastMessage] = useState("No attendance activity yet.");
   const [isSyncing, setIsSyncing] = useState(false);
+  const [records, setRecords] = useState<AttendanceRecord[]>([]);
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [isLoadingRecords, setIsLoadingRecords] = useState(false);
 
   const selectedSite: Site = useMemo(() => {
     const found = PROJECT_SITES.find((site) => site.id === selectedSiteId);
     return found ?? PROJECT_SITES[0];
   }, [selectedSiteId]);
+
+  const loadAttendance = useCallback(async () => {
+    setIsLoadingRecords(true);
+    try {
+      const remote = await fetchAttendanceRecords(user.id, user.role);
+      setRecords(remote);
+    } catch {
+      const local = await getLocalAttendanceForUser(user.id);
+      setRecords(local);
+    } finally {
+      setIsLoadingRecords(false);
+    }
+  }, [user]);
 
   const runSync = useCallback(async () => {
     if (isSyncing) return;
@@ -86,12 +125,19 @@ function AbsensiScreen({ user, onLogout }: { user: EngineerUser; onLogout: () =>
       const syncedRefs = await syncAttendanceRecords(payload);
       await markAttendanceSynced(syncedRefs);
       setLastMessage(`Sync successful: ${syncedRefs.length} records sent.`);
+      await loadAttendance();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Sync failed to server.";
       setLastMessage("Sync failed. Data remains safe in local storage.");
     }
     setIsSyncing(false);
-  }, [isSyncing, user]);
+  }, [isSyncing, user, loadAttendance]);
+
+  useEffect(() => {
+    loadAttendance();
+    const timer = setInterval(() => { void runSync(); }, 15 * 60 * 1000);
+    return () => clearInterval(timer);
+  }, [loadAttendance, runSync]);
 
   const submitAttendance = async (mode: "check-in" | "check-out") => {
     if (user.role !== "user" && user.role !== "hrd") {
@@ -161,14 +207,124 @@ function AbsensiScreen({ user, onLogout }: { user: EngineerUser; onLogout: () =>
     }
   };
 
-  useEffect(() => {
-    const timer = setInterval(() => { void runSync(); }, 15 * 60 * 1000);
-    return () => clearInterval(timer);
-  }, [runSync]);
+  const isSameDay = (d1: Date, d2: Date) => {
+    return d1.getFullYear() === d2.getFullYear() &&
+      d1.getMonth() === d2.getMonth() &&
+      d1.getDate() === d2.getDate();
+  };
+
+  const isLate = (checkInStr: string) => {
+    try {
+      const d = new Date(checkInStr);
+      const jakartaTime = new Date(d.getTime() + (7 * 60 * 60 * 1000));
+      const hours = jakartaTime.getUTCHours();
+      const minutes = jakartaTime.getUTCMinutes();
+      return (hours > 9) || (hours === 9 && minutes > 0);
+    } catch {
+      return false;
+    }
+  };
+
+  const getDayStatus = (day: number) => {
+    const dateStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const dayRecords = records.filter(r => r.check_in && r.check_in.startsWith(dateStr));
+    const today = new Date();
+    const dayDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day);
+
+    // Check if holiday
+    if (isHoliday(dayDate)) {
+      return 'holiday';
+    }
+
+    if (dayRecords.length === 0) {
+      if (dayDate < today && !isSameDay(dayDate, today)) {
+        return 'no-checkin';
+      }
+      if (dayDate > today) return 'future';
+      return 'none';
+    }
+
+    const hasLate = dayRecords.some(r => r.check_in && isLate(r.check_in));
+    if (hasLate) return 'late';
+
+    const hasForgetCheckout = dayRecords.some(r => !r.check_out);
+    if (hasForgetCheckout) return 'forget-checkout';
+
+    return 'checked-in';
+  };
+
+  const getDaysInMonth = (date: Date) => {
+    return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  };
+
+  const getFirstDayOfMonth = (date: Date) => {
+    return new Date(date.getFullYear(), date.getMonth(), 1).getDay();
+  };
+
+  const renderCalendar = () => {
+    const daysInMonth = getDaysInMonth(selectedDate);
+    const firstDay = getFirstDayOfMonth(selectedDate);
+    const days = [];
+    const today = new Date();
+
+    for (let i = 0; i < firstDay; i++) {
+      days.push(<View key={`empty-${i}`} style={styles.calendarDay} />);
+    }
+
+    for (let day = 1; day <= daysInMonth; day++) {
+      const status = getDayStatus(day);
+      const isToday = isSameDay(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day), today);
+      const isSelected = selectedDate.getDate() === day;
+
+      let dayStyle = [styles.calendarDay];
+      let textStyle = [styles.calendarDayText];
+
+      if (status === 'checked-in') {
+        dayStyle.push({ backgroundColor: '#007AFF' });
+        textStyle.push({ color: '#fff' });
+      } else if (status === 'late') {
+        dayStyle.push({ backgroundColor: '#ffcc00' });
+        textStyle.push({ color: '#000' });
+      } else if (status === 'no-checkin') {
+        dayStyle.push({ backgroundColor: '#ff3b30' });
+        textStyle.push({ color: '#fff' });
+      } else if (status === 'forget-checkout') {
+        dayStyle.push({ backgroundColor: '#8e8e93' });
+        textStyle.push({ color: '#fff' });
+      } else if (status === 'holiday') {
+        textStyle.push({ color: '#ff3b30', fontWeight: '600' });
+      }
+
+      if (isToday) {
+        dayStyle.push(styles.calendarDayToday);
+      }
+      if (isSelected) {
+        dayStyle.push(styles.calendarDayActive);
+        textStyle.push(styles.calendarDayActiveText);
+      }
+
+      days.push(
+        <Pressable
+          key={day}
+          style={dayStyle}
+          onPress={() => setSelectedDate(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day))}
+        >
+          <Text style={textStyle}>{day}</Text>
+        </Pressable>
+      );
+    }
+
+    return days;
+  };
+
+  const selectedDayRecords = (() => {
+    const dateStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDate.getDate()).padStart(2, '0')}`;
+    return records.filter(r => r.check_in && r.check_in.startsWith(dateStr));
+  })();
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.screenContainer}>
-      <Text style={styles.title}>Hello, {user.name}</Text>
+      <Text style={styles.title}>Hello, {user.role === 'user' ? 'Field Engineer' : user.name}</Text>
       <Text style={styles.subtitle}>Role: {user.role}</Text>
 
       {user.role === "user" ? (
@@ -214,6 +370,74 @@ function AbsensiScreen({ user, onLogout }: { user: EngineerUser; onLogout: () =>
         </View>
       ) : null}
       <Text style={styles.infoText}>{lastMessage}</Text>
+
+      <Text style={[styles.sectionLabel, { marginTop: 20 }]}>Calendar</Text>
+      <View style={styles.calendarContainer}>
+        <View style={styles.calendarHeader}>
+          <Pressable onPress={() => setSelectedDate(new Date(selectedDate.getFullYear(), selectedDate.getMonth() - 1))}>
+            <Text style={{ color: '#007AFF', fontSize: 18 }}>‹</Text>
+          </Pressable>
+          <Text style={styles.calendarTitle}>
+            {selectedDate.toLocaleString('id-ID', { month: 'long', year: 'numeric' })}
+          </Text>
+          <Pressable onPress={() => setSelectedDate(new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1))}>
+            <Text style={{ color: '#007AFF', fontSize: 18 }}>›</Text>
+          </Pressable>
+        </View>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center' }}>
+          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+            <Text key={d} style={{ width: 36, textAlign: 'center', fontSize: 10, color: '#8e8e93', margin: 2 }}>{d}</Text>
+          ))}
+          {renderCalendar()}
+        </View>
+      </View>
+
+      <View style={{ marginTop: 16 }}>
+        <Text style={{ fontSize: 14, fontWeight: '600', color: '#000', marginBottom: 8 }}>
+          {selectedDate.toLocaleString('id-ID', { day: 'numeric', month: 'long' })}
+        </Text>
+        {selectedDayRecords.length > 0 ? selectedDayRecords.map((item, idx) => (
+          <View key={idx} style={styles.recordCard}>
+            <Text style={styles.recordTitle}>
+              {item.employee_name ?? user.name}
+            </Text>
+            <Text style={styles.recordMeta}>Check-in: {item.check_in ? formatTime(item.check_in) : "-"}</Text>
+            <Text style={styles.recordMeta}>
+              {item.check_out ? `Check-out: ${formatTime(item.check_out)}` : "Not checked out"}
+            </Text>
+            <Text style={[styles.recordMeta, item.synced ? styles.okText : styles.warnText]}>
+              {item.synced ? "✓ Synced" : "⏳ Pending"}
+            </Text>
+          </View>
+        )) : (
+          <Text style={styles.emptyText}>No attendance on this day</Text>
+        )}
+      </View>
+
+      <View style={{ marginTop: 12, padding: 10, backgroundColor: '#fff', borderRadius: 12 }}>
+        <Text style={{ fontSize: 12, color: '#8e8e93', marginBottom: 6 }}>Legend:</Text>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: '#007AFF' }} />
+            <Text style={{ fontSize: 10, color: '#8e8e93' }}>Check-in</Text>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: '#ffcc00' }} />
+            <Text style={{ fontSize: 10, color: '#8e8e93' }}>Late</Text>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: '#ff3b30' }} />
+            <Text style={{ fontSize: 10, color: '#8e8e93' }}>No Check-in</Text>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: '#8e8e93' }} />
+            <Text style={{ fontSize: 10, color: '#8e8e93' }}>No Check-out</Text>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <Text style={{ fontSize: 10, color: '#ff3b30', fontWeight: '600' }}>Red Text = Holiday</Text>
+          </View>
+        </View>
+      </View>
     </ScrollView>
   );
 }
@@ -774,7 +998,6 @@ export default function App() {
           }}
         >
           <Tab.Screen name="Attendance" options={{ tabBarLabel: 'Attendance' }}>{() => <AbsensiScreen user={user} onLogout={handleLogout} />}</Tab.Screen>
-          <Tab.Screen name="History" options={{ tabBarLabel: 'History' }}>{() => <RiwayatScreen user={user} />}</Tab.Screen>
           <Tab.Screen name="News" options={{ tabBarLabel: 'News' }}>{() => <BeritaScreen />}</Tab.Screen>
           {(user.role === 'hrd' || user.role === 'admin') && (
             <Tab.Screen name="Dashboard" options={{ tabBarLabel: 'Dashboard' }}>{() => <DashboardScreen user={user} />}</Tab.Screen>

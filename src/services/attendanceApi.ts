@@ -61,11 +61,20 @@ export const loginUser = async (
       throw new Error("Login failed. Check email/password.");
     }
 
-    return (await response.json()) as EngineerUser;
+    const user = (await response.json()) as EngineerUser;
+
+    // Save to local storage for offline access
+    await cacheSignedInUser(user);
+
+    return user;
   } catch (error) {
     // If server is unreachable, try to load from local storage
-    console.log("Server unreachable, using local data");
-    throw new Error("Cannot connect to server. Please check your internet connection.");
+    console.log("Server unreachable, trying local data");
+    const localUser = await getLocalUser(payload.email);
+    if (localUser) {
+      return localUser;
+    }
+    throw new Error("Cannot connect to server and no local data found.");
   }
 };
 

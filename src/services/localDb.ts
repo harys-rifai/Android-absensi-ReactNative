@@ -1,3 +1,4 @@
+import * as SQLite from 'expo-sqlite';
 import { AttendanceRecord, EngineerUser } from "../types/attendance";
 
 // Generate UUID v4
@@ -5,7 +6,6 @@ const generateUUID = (): string => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
     return crypto.randomUUID();
   }
-  // Fallback for older environments
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
     const r = Math.random() * 16 | 0;
     const v = c === 'x' ? r : (r & 0x3 | 0x8);
@@ -13,9 +13,12 @@ const generateUUID = (): string => {
   });
 };
 
-// Web storage using localStorage for persistence
+// Platform detection
+const isWeb = typeof window !== 'undefined' && typeof localStorage !== 'undefined';
+
+// ==================== Web Storage Fallback ====================
 const loadFromStorage = (key: string) => {
-  if (typeof localStorage === 'undefined') return null;
+  if (!isWeb) return null;
   try {
     const data = localStorage.getItem(key);
     return data ? JSON.parse(data) : null;
@@ -25,7 +28,7 @@ const loadFromStorage = (key: string) => {
 };
 
 const saveToStorage = (key: string, data: any) => {
-  if (typeof localStorage === 'undefined') return;
+  if (!isWeb) return;
   try {
     localStorage.setItem(key, JSON.stringify(data));
   } catch (e) {
@@ -33,8 +36,7 @@ const saveToStorage = (key: string, data: any) => {
   }
 };
 
-// Web fallback storage
-interface WebAttendance {
+export interface WebAttendance {
   id: number;
   employee_id: number;
   check_in: string | null;
@@ -46,7 +48,7 @@ interface WebAttendance {
   client_ref: string;
 }
 
-interface WebNews {
+export interface WebNews {
   id: number;
   remote_id: number | undefined;
   title: string;
@@ -62,7 +64,7 @@ interface WebServerConfig {
   value: string;
 }
 
-const webStorage: {
+export const webStorage: {
   employees: EngineerUser[];
   attendance: WebAttendance[];
   news: WebNews[];
@@ -74,47 +76,207 @@ const webStorage: {
   serverConfig: loadFromStorage('serverConfig') || [],
 };
 
-// Save to localStorage whenever webStorage changes
-const saveAllToStorage = () => {
+export const saveAllToStorage = () => {
   saveToStorage('employees', webStorage.employees);
   saveToStorage('attendance', webStorage.attendance);
   saveToStorage('news', webStorage.news);
   saveToStorage('serverConfig', webStorage.serverConfig);
 };
 
-export const initializeLocalDb = async (): Promise<void> => {
-  console.log("Web mode: using in-memory storage");
+// ==================== SQLite Database (Native) ====================
+let db: SQLite.SQLiteDatabase | null = null;
+
+const getDatabase = (): SQLite.SQLiteDatabase => {
+  if (!db) {
+    db = SQLite.openDatabaseSync('apsensi.db');
+  }
+  return db;
 };
 
-export const cacheSignedInUser = async (user: EngineerUser): Promise<void> => {
-  webStorage.employees = [user];
-  saveAllToStorage();
+// ==================== Initialize Database ====================
+export const initializeLocalDb = async (): Promise<void> => {
+  if (isWeb) {
+    console.log("Web mode: using localStorage");
+    return;
+  }
+
+  try {
+    const database = getDatabase();
+
+    // Create tables
+    await database.execAsync(`
+      PRAGMA journal_mode = WAL;
+      PRAGMA foreign_keys = ON;
+
+      CREATE TABLE IF NOT EXISTS employees (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT UNIQUE NOT NULL,
+        name TEXT NOT NULL,
+        role TEXT NOT NULL,
+        site_id INTEGER,
+        password TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS attendance (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        employee_id INTEGER NOT NULL,
+        check_in TEXT,
+        check_out TEXT,
+        latitude REAL,
+        longitude REAL,
+        location_type TEXT,
+        synced INTEGER DEFAULT 0,
+        client_ref TEXT UNIQUE,
+        FOREIGN KEY (employee_id) REFERENCES employees(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS news (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        remote_id INTEGER,
+        title TEXT NOT NULL,
+        content TEXT,
+        image_url TEXT,
+        author_name TEXT,
+        published_at TEXT,
+        synced INTEGER DEFAULT 1
+      );
+
+      CREATE TABLE IF NOT EXISTS server_config (
+        key TEXT PRIMARY KEY,
+        value TEXT,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS sync_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        attendance_client_ref TEXT,
+        status TEXT,
+        message TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    console.log("SQLite initialized successfully");
+  } catch (error) {
+    console.error("SQLite initialization error:", error);
+  }
+};
+
+// ==================== User Operations ====================
+export const cacheSignedInUser = async (user: EngineerUser | null): Promise<void> => {
+  if (isWeb) {
+    webStorage.employees = user ? [user] : [];
+    saveAllToStorage();
+    return;
+  }
+
+  try {
+    const database = getDatabase();
+    if (!user) {
+      // Clear cached user
+      await database.runAsync('DELETE FROM employees');
+    } else {
+      await database.runAsync(
+        `INSERT OR REPLACE INTO employees (id, email, name, role, site_id, password)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [user.id || null, user.email, user.name, user.role, user.site_id || null, null]
+      );
+    }
+  } catch (error) {
+    console.error("Cache user error:", error);
+  }
 };
 
 export const getLocalUser = async (email: string): Promise<EngineerUser | null> => {
-  const user = webStorage.employees.find((u) => u.email === email);
-  return user || null;
+  if (isWeb) {
+    return webStorage.employees.find((u) => u.email === email) || null;
+  }
+
+  try {
+    const database = getDatabase();
+    const result = await database.getFirstAsync<EngineerUser>(
+      'SELECT * FROM employees WHERE email = ?',
+      [email]
+    );
+    return result || null;
+  } catch (error) {
+    console.error("Get local user error:", error);
+    return null;
+  }
 };
 
+export const getCachedUser = async (): Promise<EngineerUser | null> => {
+  if (isWeb) {
+    return webStorage.employees.length > 0 ? webStorage.employees[0] : null;
+  }
+
+  try {
+    const database = getDatabase();
+    const result = await database.getFirstAsync<EngineerUser>(
+      'SELECT * FROM employees ORDER BY id DESC LIMIT 1'
+    );
+    return result || null;
+  } catch (error) {
+    console.error("Get cached user error:", error);
+    return null;
+  }
+};
+
+// ==================== Attendance Operations ====================
 export const saveCheckInLocal = async (
   employeeId: number,
   latitude: number,
   longitude: number,
   locationType: string
-): Promise<void> => {
-  const clientRef = `web-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  webStorage.attendance.push({
-    id: Date.now(),
-    employee_id: employeeId,
-    check_in: new Date().toISOString(),
-    check_out: null,
-    latitude,
-    longitude,
-    location_type: locationType,
-    synced: 0,
-    client_ref: clientRef,
-  });
-  saveAllToStorage();
+): Promise<boolean> => {
+  const clientRef = generateUUID();
+  const now = new Date().toISOString();
+  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+
+  if (isWeb) {
+    // Check if already checked in today
+    const alreadyCheckedInToday = webStorage.attendance.some(
+      (a) => a.employee_id === employeeId && a.check_in && a.check_in.startsWith(today)
+    );
+    if (alreadyCheckedInToday) {
+      return false; // Already checked in today
+    }
+    webStorage.attendance.push({
+      id: Date.now(),
+      employee_id: employeeId,
+      check_in: now,
+      check_out: null,
+      latitude,
+      longitude,
+      location_type: locationType,
+      synced: 0,
+      client_ref: clientRef,
+    });
+    saveAllToStorage();
+    return true;
+  }
+
+  try {
+    const database = getDatabase();
+    // Check if already checked in today (SQLite)
+    const existing = await database.getFirstAsync<{ id: number }>(
+      `SELECT id FROM attendance
+       WHERE employee_id = ? AND DATE(check_in) = ?`,
+      [employeeId, today]
+    );
+    if (existing) {
+      return false; // Already checked in today
+    }
+    await database.runAsync(
+      `INSERT INTO attendance (employee_id, check_in, latitude, longitude, location_type, synced, client_ref)
+       VALUES (?, ?, ?, ?, ?, 0, ?)`,
+      [employeeId, now, latitude, longitude, locationType, clientRef]
+    );
+    return true;
+  } catch (error) {
+    console.error("Save check-in error:", error);
+    return false;
+  }
 };
 
 export const saveCheckOutLocal = async (
@@ -123,23 +285,79 @@ export const saveCheckOutLocal = async (
   longitude: number,
   locationType: string
 ): Promise<boolean> => {
-  const open = webStorage.attendance.find(
-    (a) => a.employee_id === employeeId && !a.check_out
-  );
-  if (!open) return false;
-  open.check_out = new Date().toISOString();
-  open.latitude = latitude;
-  open.longitude = longitude;
-  open.location_type = locationType;
-  open.synced = 0;
-  saveAllToStorage();
-  return true;
+  const now = new Date().toISOString();
+  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+
+  if (isWeb) {
+    // Check if already checked out today
+    const alreadyCheckedOutToday = webStorage.attendance.some(
+      (a) => a.employee_id === employeeId && a.check_out && a.check_out.startsWith(today)
+    );
+    if (alreadyCheckedOutToday) {
+      return false; // Already checked out today
+    }
+    const open = webStorage.attendance.find(
+      (a) => a.employee_id === employeeId && !a.check_out
+    );
+    if (!open) return false;
+    open.check_out = now;
+    open.latitude = latitude;
+    open.longitude = longitude;
+    open.location_type = locationType;
+    open.synced = 0;
+    saveAllToStorage();
+    return true;
+  }
+
+  try {
+    const database = getDatabase();
+    // Check if already checked out today (SQLite)
+    const alreadyOut = await database.getFirstAsync<{ id: number }>(
+      `SELECT id FROM attendance
+       WHERE employee_id = ? AND DATE(check_out) = ?
+       LIMIT 1`,
+      [employeeId, today]
+    );
+    if (alreadyOut) {
+      return false; // Already checked out today
+    }
+    const result = await database.runAsync(
+      `UPDATE attendance
+       SET check_out = ?, latitude = ?, longitude = ?, location_type = ?, synced = 0
+       WHERE employee_id = ? AND check_out IS NULL
+       LIMIT 1`,
+      [now, latitude, longitude, locationType, employeeId]
+    );
+    return result.changes > 0;
+  } catch (error) {
+    console.error("Save check-out error:", error);
+    return false;
+  }
 };
 
 export const getUnsyncedAttendance = async (): Promise<AttendanceRecord[]> => {
-  return webStorage.attendance
-    .filter((a) => a.synced === 0)
-    .map((row) => ({
+  if (isWeb) {
+    return webStorage.attendance
+      .filter((a) => a.synced === 0)
+      .map((row) => ({
+        id: row.id,
+        employee_id: row.employee_id,
+        check_in: row.check_in,
+        check_out: row.check_out,
+        latitude: row.latitude,
+        longitude: row.longitude,
+        location_type: row.location_type,
+        synced: false,
+        client_ref: row.client_ref,
+      }));
+  }
+
+  try {
+    const database = getDatabase();
+    const rows = await database.getAllAsync<WebAttendance>(
+      'SELECT * FROM attendance WHERE synced = 0'
+    );
+    return rows.map((row) => ({
       id: row.id,
       employee_id: row.employee_id,
       check_in: row.check_in,
@@ -150,32 +368,67 @@ export const getUnsyncedAttendance = async (): Promise<AttendanceRecord[]> => {
       synced: false,
       client_ref: row.client_ref,
     }));
+  } catch (error) {
+    console.error("Get unsynced error:", error);
+    return [];
+  }
 };
 
 export const markAttendanceSynced = async (clientRefs: string[]): Promise<void> => {
   if (clientRefs.length === 0) return;
-  webStorage.attendance.forEach((a) => {
-    if (clientRefs.includes(a.client_ref)) {
-      a.synced = 1;
-    }
-  });
-  saveAllToStorage();
-};
 
-export const insertSyncLog = async (
-  attendanceClientRef: string,
-  status: "success" | "failed",
-  message: string
-): Promise<void> => {
-  console.log(`Sync log: ${attendanceClientRef} - ${status} - ${message}`);
+  if (isWeb) {
+    webStorage.attendance.forEach((a) => {
+      if (clientRefs.includes(a.client_ref)) {
+        a.synced = 1;
+      }
+    });
+    saveAllToStorage();
+    return;
+  }
+
+  try {
+    const database = getDatabase();
+    const placeholders = clientRefs.map(() => '?').join(',');
+    await database.runAsync(
+      `UPDATE attendance SET synced = 1 WHERE client_ref IN (${placeholders})`,
+      clientRefs
+    );
+  } catch (error) {
+    console.error("Mark synced error:", error);
+  }
 };
 
 export const getLocalAttendanceForUser = async (
   employeeId: number
 ): Promise<AttendanceRecord[]> => {
-  return webStorage.attendance
-    .filter((a) => a.employee_id === employeeId)
-    .map((row) => ({
+  if (isWeb) {
+    return webStorage.attendance
+      .filter((a) => a.employee_id === employeeId)
+      .map((row) => ({
+        id: row.id,
+        employee_id: row.employee_id,
+        check_in: row.check_in,
+        check_out: row.check_out,
+        latitude: row.latitude,
+        longitude: row.longitude,
+        location_type: row.location_type,
+        synced: row.synced === 1,
+        client_ref: row.client_ref,
+      }))
+      .sort((a, b) =>
+        new Date(b.check_in || b.check_out || 0).getTime() -
+        new Date(a.check_in || a.check_out || 0).getTime()
+      );
+  }
+
+  try {
+    const database = getDatabase();
+    const rows = await database.getAllAsync<WebAttendance>(
+      'SELECT * FROM attendance WHERE employee_id = ? ORDER BY check_in DESC',
+      [employeeId]
+    );
+    return rows.map((row) => ({
       id: row.id,
       employee_id: row.employee_id,
       check_in: row.check_in,
@@ -185,14 +438,14 @@ export const getLocalAttendanceForUser = async (
       location_type: row.location_type,
       synced: row.synced === 1,
       client_ref: row.client_ref,
-    }))
-    .sort(
-      (a, b) =>
-        new Date(b.check_in || b.check_out || 0).getTime() -
-        new Date(a.check_in || a.check_out || 0).getTime()
-    );
+    }));
+  } catch (error) {
+    console.error("Get local attendance error:", error);
+    return [];
+  }
 };
 
+// ==================== News Operations ====================
 export type NewsItem = {
   id?: number;
   remote_id?: number;
@@ -205,46 +458,97 @@ export type NewsItem = {
 };
 
 export const saveNewsLocal = async (news: NewsItem): Promise<void> => {
-  webStorage.news.push({
-    id: Date.now(),
-    remote_id: news.remote_id,
-    title: news.title,
-    content: news.content,
-    image_url: news.image_url,
-    author_name: news.author_name,
-    published_at: news.published_at,
-    synced: 1,
-  });
-  saveAllToStorage();
+  if (isWeb) {
+    webStorage.news.push({
+      id: Date.now(),
+      remote_id: news.remote_id,
+      title: news.title,
+      content: news.content,
+      image_url: news.image_url,
+      author_name: news.author_name,
+      published_at: news.published_at,
+      synced: 1,
+    });
+    saveAllToStorage();
+    return;
+  }
+
+  try {
+    const database = getDatabase();
+    await database.runAsync(
+      `INSERT OR REPLACE INTO news (remote_id, title, content, image_url, author_name, published_at, synced)
+       VALUES (?, ?, ?, ?, ?, ?, 1)`,
+      [news.remote_id || null, news.title, news.content, news.image_url || null, news.author_name || null, news.published_at || null]
+    );
+  } catch (error) {
+    console.error("Save news error:", error);
+  }
 };
 
 export const saveNewsLocalBatch = async (newsItems: NewsItem[]): Promise<void> => {
-  webStorage.news = newsItems.map((item) => ({
-    id: Date.now(),
-    remote_id: item.remote_id,
-    title: item.title,
-    content: item.content,
-    image_url: item.image_url,
-    author_name: item.author_name,
-    published_at: item.published_at,
-    synced: 1,
-  }));
-  saveAllToStorage();
+  if (isWeb) {
+    webStorage.news = newsItems.map((item) => ({
+      id: Date.now(),
+      remote_id: item.remote_id,
+      title: item.title,
+      content: item.content,
+      image_url: item.image_url,
+      author_name: item.author_name,
+      published_at: item.published_at,
+      synced: 1,
+    }));
+    saveAllToStorage();
+    return;
+  }
+
+  try {
+    const database = getDatabase();
+    for (const item of newsItems) {
+      await database.runAsync(
+        `INSERT OR REPLACE INTO news (remote_id, title, content, image_url, author_name, published_at, synced)
+         VALUES (?, ?, ?, ?, ?, ?, 1)`,
+        [item.remote_id || null, item.title, item.content, item.image_url || null, item.author_name || null, item.published_at || null]
+      );
+    }
+  } catch (error) {
+    console.error("Save news batch error:", error);
+  }
 };
 
 export const getLocalNews = async (): Promise<NewsItem[]> => {
-  return webStorage.news.map((row) => ({
-    id: row.id,
-    remote_id: row.remote_id ?? undefined,
-    title: row.title,
-    content: row.content,
-    image_url: row.image_url ?? undefined,
-    author_name: row.author_name ?? undefined,
-    published_at: row.published_at ?? undefined,
-    synced: row.synced === 1,
-  }));
+  if (isWeb) {
+    return webStorage.news.map((row) => ({
+      id: row.id,
+      remote_id: row.remote_id ?? undefined,
+      title: row.title,
+      content: row.content,
+      image_url: row.image_url ?? undefined,
+      author_name: row.author_name ?? undefined,
+      published_at: row.published_at ?? undefined,
+      synced: row.synced === 1,
+    }));
+  }
+
+  try {
+    const database = getDatabase();
+    const rows = await database.getAllAsync<WebNews>('SELECT * FROM news');
+    return rows.map((row) => ({
+      id: row.id,
+      remote_id: row.remote_id ?? undefined,
+      title: row.title,
+      content: row.content,
+      image_url: row.image_url ?? undefined,
+      author_name: row.author_name ?? undefined,
+      published_at: row.published_at ?? undefined,
+      synced: row.synced === 1,
+    }));
+  } catch (error) {
+    console.error("Get local news error:", error);
+    return [];
+  }
 };
 
+// ==================== Server Config Operations ====================
 export type ServerConfig = {
   key: string;
   value: string;
@@ -252,16 +556,67 @@ export type ServerConfig = {
 };
 
 export const saveServerConfig = async (key: string, value: string): Promise<void> => {
-  const existing = webStorage.serverConfig.find((c) => c.key === key);
-  if (existing) {
-    existing.value = value;
-  } else {
-    webStorage.serverConfig.push({ key, value });
+  if (isWeb) {
+    const existing = webStorage.serverConfig.find((c) => c.key === key);
+    if (existing) {
+      existing.value = value;
+    } else {
+      webStorage.serverConfig.push({ key, value });
+    }
+    saveAllToStorage();
+    return;
   }
-  saveAllToStorage();
+
+  try {
+    const database = getDatabase();
+    await database.runAsync(
+      `INSERT OR REPLACE INTO server_config (key, value, updated_at)
+       VALUES (?, ?, datetime('now'))`,
+      [key, value]
+    );
+  } catch (error) {
+    console.error("Save server config error:", error);
+  }
 };
 
 export const getServerConfig = async (key: string): Promise<string | null> => {
-  const found = webStorage.serverConfig.find((c) => c.key === key);
-  return found?.value ?? null;
+  if (isWeb) {
+    const found = webStorage.serverConfig.find((c) => c.key === key);
+    return found?.value ?? null;
+  }
+
+  try {
+    const database = getDatabase();
+    const result = await database.getFirstAsync<{ value: string }>(
+      'SELECT value FROM server_config WHERE key = ?',
+      [key]
+    );
+    return result?.value ?? null;
+  } catch (error) {
+    console.error("Get server config error:", error);
+    return null;
+  }
+};
+
+// ==================== Sync Log Operations ====================
+export const insertSyncLog = async (
+  attendanceClientRef: string,
+  status: "success" | "failed",
+  message: string
+): Promise<void> => {
+  if (isWeb) {
+    console.log(`Sync log: ${attendanceClientRef} - ${status} - ${message}`);
+    return;
+  }
+
+  try {
+    const database = getDatabase();
+    await database.runAsync(
+      `INSERT INTO sync_log (attendance_client_ref, status, message, created_at)
+       VALUES (?, ?, ?, datetime('now'))`,
+      [attendanceClientRef, status, message]
+    );
+  } catch (error) {
+    console.error("Insert sync log error:", error);
+  }
 };

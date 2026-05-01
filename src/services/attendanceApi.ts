@@ -1,5 +1,6 @@
 import { Platform } from "react-native";
 import { AttendanceRecord, EngineerUser, UserRole } from "../types/attendance";
+import { cacheSignedInUser, getLocalUser } from "./localDb";
 
 // Default server IP - automatically use this IP
 const SERVER_IP = "192.168.1.21";

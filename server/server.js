@@ -194,6 +194,20 @@ app.post("/attendance/check-in", async (req, res) => {
     }
 
     // Check for existing open check-in
+    // Check for existing check-in today
+    const existingToday = await pool.query(
+      `SELECT id FROM attendance
+       WHERE employee_id = $1
+         AND DATE(check_in AT TIME ZONE 'Asia/Jakarta') = CURRENT_DATE AT TIME ZONE 'Asia/Jakarta'
+       LIMIT 1`,
+      [id]
+    );
+    if (existingToday.rows.length > 0) {
+      res.status(400).json({ error: "You already have a check-in today. Only one check-in per day is allowed." });
+      return;
+    }
+
+    // Check for active check-in (not checked out)
     const existing = await pool.query(
       `SELECT id FROM attendance WHERE employee_id = $1 AND check_out IS NULL LIMIT 1`,
       [id]
@@ -239,6 +253,19 @@ app.post("/attendance/check-out", async (req, res) => {
     const id = Number(requesterId || 0);
     if (!id) {
       res.status(400).json({ error: "requesterId is required." });
+      return;
+    }
+
+    // Check if already checked out today
+    const alreadyCheckedOut = await pool.query(
+      `SELECT id FROM attendance
+       WHERE employee_id = $1
+         AND DATE(check_out AT TIME ZONE 'Asia/Jakarta') = CURRENT_DATE AT TIME ZONE 'Asia/Jakarta'
+       LIMIT 1`,
+      [id]
+    );
+    if (alreadyCheckedOut.rows.length > 0) {
+      res.status(400).json({ error: "You already have a check-out today. Only one check-out per day is allowed." });
       return;
     }
 
@@ -525,33 +552,6 @@ app.post("/overtime/approve-hrd/:id", async (req, res) => {
   } catch (error) {
     console.error("HRD approval error:", error);
     const message = error instanceof Error ? error.message : "Failed to approve overtime";
-    res.status(500).json({ error: message });
-  }
-});
-
-app.post("/overtime/request", async (req, res) => {
-  try {
-    const { requesterId, overtimeDate, hours, note } = req.body;
-    const id = Number(requesterId || 0);
-    const parsedHours = Number(hours || 0);
-    if (!id || !overtimeDate || parsedHours <= 0) {
-      res.status(400).json({ error: "requesterId, overtimeDate, and hours (>0) are required." });
-      return;
-    }
-
-    const result = await pool.query(
-      `INSERT INTO overtime_request (
-        employee_id, overtime_date, hours, status, note
-      ) VALUES (
-        $1, $2, $3, 'pending_manager', $4
-      )
-      RETURNING *`,
-      [id, overtimeDate, parsedHours, note || null]
-    );
-    res.status(201).json(result.rows[0]);
-  } catch (error) {
-    console.error("Overtime request error:", error);
-    const message = error instanceof Error ? error.message : "Failed to request overtime";
     res.status(500).json({ error: message });
   }
 });

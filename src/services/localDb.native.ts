@@ -76,16 +76,27 @@ export const saveCheckInLocal = async (
   latitude: number,
   longitude: number,
   locationType: string
-): Promise<void> => {
+): Promise<boolean> => {
   const db = await SQLite.openDatabaseAsync("local_attendance.db");
+  // Check if already checked in today
+  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+  const existing = await db.getFirstAsync<{ id: number }>(
+    `SELECT id FROM attendance
+     WHERE employee_id = ? AND DATE(check_in) = ?`,
+    [employeeId, today]
+  );
+  if (existing) {
+    return false; // Already checked in today
+  }
   await db.runAsync(
     `INSERT INTO attendance (
        employee_id, check_in, check_out, latitude, longitude, location_type, synced, client_ref
      ) VALUES (
-       ?, datetime('now'), NULL, ?, ?, ?, 0, ?
+       ?, datetime('now', 'localtime'), NULL, ?, ?, ?, 0, ?
      )`,
     [employeeId, latitude, longitude, locationType, `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`]
   );
+  return true;
 };
 
 export const saveCheckOutLocal = async (
@@ -95,6 +106,19 @@ export const saveCheckOutLocal = async (
   locationType: string
 ): Promise<boolean> => {
   const db = await SQLite.openDatabaseAsync("local_attendance.db");
+  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+
+  // Check if already checked out today
+  const alreadyOut = await db.getFirstAsync<{ id: number }>(
+    `SELECT id FROM attendance
+     WHERE employee_id = $1 AND DATE(check_out) = $2
+     LIMIT 1`,
+    [employeeId, today]
+  );
+  if (alreadyOut) {
+    return false; // Already checked out today
+  }
+
   const open = await db.getFirstAsync<{ id: number }>(
     `SELECT id FROM attendance
      WHERE employee_id = $1 AND check_out IS NULL
@@ -108,7 +132,7 @@ export const saveCheckOutLocal = async (
 
   await db.runAsync(
     `UPDATE attendance
-     SET check_out = datetime('now'),
+     SET check_out = datetime('now', 'localtime'),
          latitude = $1,
          longitude = $2,
          location_type = $3,

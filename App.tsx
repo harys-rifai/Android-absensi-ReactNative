@@ -34,8 +34,10 @@ import {
 import { haversineDistanceMeters } from "./src/utils/geofence";
 import {
   cacheSignedInUser,
+  getCachedUser,
   getLocalAttendanceForUser,
   getLocalNews,
+  getLocalUser,
   getServerConfig,
   getUnsyncedAttendance,
   initializeLocalDb,
@@ -49,6 +51,39 @@ import {
 } from "./src/services/localDb";
 
 const Tab = createBottomTabNavigator();
+
+// === Timezone Utilities (Jakarta/Indonesia UTC+7) ===
+const JAKARTA_OFFSET_MS = 7 * 60 * 60 * 1000; // UTC+7 in milliseconds
+
+const toJakartaTime = (date: Date): Date => {
+  // Add UTC+7 offset to get Jakarta time
+  return new Date(date.getTime() + JAKARTA_OFFSET_MS);
+};
+
+const getJakartaDateString = (date: Date): string => {
+  const jakarta = toJakartaTime(date);
+  return `${jakarta.getUTCFullYear()}-${String(jakarta.getUTCMonth() + 1).padStart(2, '0')}-${String(jakarta.getUTCDate()).padStart(2, '0')}`;
+};
+
+const isSameDayJakarta = (d1: Date, d2: Date) => {
+  const j1 = toJakartaTime(d1);
+  const j2 = toJakartaTime(d2);
+  return j1.getFullYear() === j2.getFullYear() &&
+    j1.getMonth() === j2.getMonth() &&
+    j1.getDate() === j2.getDate();
+};
+
+const isLate = (checkInStr: string) => {
+  try {
+    const d = new Date(checkInStr);
+    const jakarta = toJakartaTime(d);
+    const hours = jakarta.getHours();
+    const minutes = jakarta.getMinutes();
+    return (hours > 9) || (hours === 9 && minutes > 0);
+  } catch {
+    return false;
+  }
+};
 
 // Indonesian Holidays 2026 (sample - add more as needed)
 const HOLIDAYS_2026 = [
@@ -72,10 +107,6 @@ const isHoliday = (date: Date): boolean => {
   const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   return HOLIDAYS_2026.includes(dateStr);
 };
-
-  const toJakartaTime = (date: Date): Date => {
-    return new Date(date.getTime() + (7 * 60 * 60 * 1000));
-  };
 
   const formatTime = (iso: string): string => {
     try {
@@ -123,11 +154,24 @@ function AbsensiScreen({ user, onLogout }: { user: EngineerUser; onLogout: () =>
   const loadAttendance = useCallback(async () => {
     setIsLoadingRecords(true);
     try {
-      const remote = await fetchAttendanceRecords(user.id, user.role);
-      setRecords(remote);
-    } catch {
       const local = await getLocalAttendanceForUser(user.id);
-      setRecords(local);
+      try {
+        const remote = await fetchAttendanceRecords(user.id, user.role);
+        const recordMap = new Map();
+        for (const r of remote) {
+          const key = r.client_ref || String(r.id);
+          recordMap.set(key, r);
+        }
+        for (const r of local) {
+          const key = r.client_ref || String(r.id);
+          recordMap.set(key, r);
+        }
+        setRecords(Array.from(recordMap.values()));
+      } catch {
+        setRecords(local);
+      }
+    } catch {
+      setRecords([]);
     } finally {
       setIsLoadingRecords(false);
     }
@@ -174,7 +218,7 @@ function AbsensiScreen({ user, onLogout }: { user: EngineerUser; onLogout: () =>
         if (!requested.granted) {
           Alert.alert(
             "Location Permission Required",
-            "Please enable location access in Settings to perform attendance. Go to Settings > Apps > [App Name] > Permissions > Location.",
+            "Please enable location access in Settings to perform attendance.",
             [{ text: "OK" }]
           );
           setIsSubmitting(false);
@@ -183,87 +227,74 @@ function AbsensiScreen({ user, onLogout }: { user: EngineerUser; onLogout: () =>
       }
 
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("GPS timeout. Please try again in an open area.")), 30000)
+        setTimeout(() => reject(new Error("GPS timeout.")), 30000)
       );
       const locationPromise = Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High,
-        timeInterval: 10000,
       });
 
       const position = await Promise.race([locationPromise, timeoutPromise]) as Location.LocationObject;
       const { latitude, longitude, accuracy } = position.coords;
 
       if (accuracy && accuracy > 100) {
-        Alert.alert(
-          "Low GPS Accuracy",
-          `GPS accuracy is ${Math.round(accuracy)}m (minimum 100m required). Please move to an open area and try again.`,
-          [{ text: "Retry" }, { text: "Continue", onPress: () => submitAttendance(mode) }]
-        );
-        setIsSubmitting(false);
-        return;
-      }
-
-      if (!latitude || !longitude) {
-        Alert.alert("GPS Error", "Unable to get valid GPS coordinates. Please try again.");
-        setIsSubmitting(false);
+        Alert.alert("Low GPS Accuracy", `Accuracy: ${Math.round(accuracy)}m. Continue anyway?`, [
+          { text: "Retry", onPress: () => { setIsSubmitting(false); } },
+          { text: "Continue", onPress: () => submitAttendance(mode) },
+        ]);
         return;
       }
 
       const distance = haversineDistanceMeters(latitude, longitude, selectedSite.latitude, selectedSite.longitude);
-      const withinGeofence = distance <= selectedSite.radiusMeters;
-      const locationType = withinGeofence ? "onsite" : "offsite";
+      const locationType = distance <= selectedSite.radiusMeters ? "onsite" : "offsite";
 
-      // Check for existing attendance today
-      const today = new Date().toISOString().split('T')[0];
-      const todayRecords = records.filter(r => r.check_in && r.check_in.startsWith(today));
+      // Get today's date in Jakarta timezone
+      const now = new Date();
+      const todayJakarta = getJakartaDateString(now);
+
+      // Filter today's records using Jakarta date
+      const todayRecords = records.filter(r => {
+        if (!r.check_in) return false;
+        const checkInDate = getJakartaDateString(new Date(r.check_in));
+        return checkInDate === todayJakarta;
+      });
 
       if (mode === "check-in") {
-        if (todayRecords.some(r => !r.check_out)) {
-          Alert.alert("Check-in Failed", "You already have an active check-in today. Please check-out first.");
+        if (todayRecords.length > 0) {
+          Alert.alert("Already Checked In", "You have already checked in today.");
           setIsSubmitting(false);
           return;
         }
-        await saveCheckInLocal(user.id, latitude, longitude, locationType);
+        const checkInSuccess = await saveCheckInLocal(user.id, latitude, longitude, locationType);
+        if (!checkInSuccess) {
+          Alert.alert("Check-in Failed", "You have already checked in today. Only one check-in per day is allowed.");
+          setIsSubmitting(false);
+          return;
+        }
+        setLastMessage(`Check-in successful at ${locationType === "onsite" ? "inside" : "outside"} area`);
       } else {
         const hasOpenCheckin = todayRecords.some(r => !r.check_out);
         if (!hasOpenCheckin) {
-          Alert.alert("Check-out Failed", "No open check-in record found for today.");
+          Alert.alert("No Check-in", "You haven't checked in today.");
           setIsSubmitting(false);
           return;
         }
-        await saveCheckOutLocal(user.id, latitude, longitude, locationType);
+        const checkOutSuccess = await saveCheckOutLocal(user.id, latitude, longitude, locationType);
+        if (!checkOutSuccess) {
+          Alert.alert("Check-out Failed", "You have already checked out today. Only one check-out per day is allowed.");
+          setIsSubmitting(false);
+          return;
+        }
+        setLastMessage(`Check-out successful at ${locationType === "onsite" ? "inside" : "outside"} area`);
       }
-      setLastMessage(`${mode === "check-in" ? "Check-in" : "Check-out"} saved locally (${locationType === "onsite" ? "inside area" : "outside area"}, distance ${Math.round(distance)}m, accuracy ${Math.round(accuracy || 0)}m).`);
+
+      await loadAttendance();
       await runSync();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "An unknown error occurred.";
-      Alert.alert("Attendance Failed", message);
+      const message = error instanceof Error ? error.message : "Unknown error";
+      Alert.alert("Error", message);
     } finally {
       setIsSubmitting(false);
     }
-  };
-
-  const isSameDay = (d1: Date, d2: Date) => {
-    return d1.getFullYear() === d2.getFullYear() &&
-      d1.getMonth() === d2.getMonth() &&
-      d1.getDate() === d2.getDate();
-  };
-
-  const isLate = (checkInStr: string) => {
-    try {
-      const d = new Date(checkInStr);
-      // Convert to Jakarta time (UTC+7)
-      const jakartaTime = new Date(d.getTime() + (7 * 60 * 60 * 1000));
-      const hours = jakartaTime.getUTCHours();
-      const minutes = jakartaTime.getUTCMinutes();
-      return (hours > 9) || (hours === 9 && minutes > 0);
-    } catch {
-      return false;
-    }
-  };
-
-  const toJakartaTime = (date: Date): Date => {
-    return new Date(date.getTime() + (7 * 60 * 60 * 1000));
   };
 
   const formatTimeJakarta = (iso: string): string => {
@@ -276,7 +307,6 @@ function AbsensiScreen({ user, onLogout }: { user: EngineerUser; onLogout: () =>
         hour: '2-digit',
         minute: '2-digit',
         hour12: false,
-        timeZone: 'UTC'
       });
     } catch {
       return iso;
@@ -284,10 +314,15 @@ function AbsensiScreen({ user, onLogout }: { user: EngineerUser; onLogout: () =>
   };
 
   const getDayStatus = (day: number) => {
-    const dateStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    const dayRecords = records.filter(r => r.check_in && r.check_in.startsWith(dateStr));
-    const today = new Date();
-    const dayDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day);
+    const jakartaSelected = toJakartaTime(selectedDate);
+    const dateStr = `${jakartaSelected.getFullYear()}-${String(jakartaSelected.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const dayRecords = records.filter(r => {
+      if (!r.check_in) return false;
+      const checkInJakarta = getJakartaDateString(new Date(r.check_in));
+      return checkInJakarta === dateStr;
+    });
+    const todayJakarta = toJakartaTime(new Date());
+    const dayDate = new Date(jakartaSelected.getFullYear(), jakartaSelected.getMonth(), day);
 
     // Check if holiday
     if (isHoliday(dayDate)) {
@@ -295,35 +330,40 @@ function AbsensiScreen({ user, onLogout }: { user: EngineerUser; onLogout: () =>
     }
 
     if (dayRecords.length === 0) {
-      if (dayDate < today && !isSameDay(dayDate, today)) {
+      if (dayDate < todayJakarta && !isSameDayJakarta(dayDate, todayJakarta)) {
         return 'no-checkin';
       }
-      if (dayDate > today) return 'future';
+      if (dayDate > todayJakarta) return 'future';
       return 'none';
     }
 
     const hasLate = dayRecords.some(r => r.check_in && isLate(r.check_in));
     if (hasLate) return 'late';
 
+    const hasCheckout = dayRecords.some(r => r.check_out);
     const hasForgetCheckout = dayRecords.some(r => !r.check_out);
-    if (hasForgetCheckout) return 'forget-checkout';
+    
+    if (hasCheckout) return 'checked-out';  // Blue for complete attendance
+    if (hasForgetCheckout) return 'forget-checkout'; // Purple for no checkout
 
-    return 'checked-in';
+    return 'checked-in'; // Green for check-in only
   };
 
   const getDaysInMonth = (date: Date) => {
-    return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+    const jakarta = toJakartaTime(date);
+    return new Date(jakarta.getFullYear(), jakarta.getMonth() + 1, 0).getDate();
   };
 
   const getFirstDayOfMonth = (date: Date) => {
-    return new Date(date.getFullYear(), date.getMonth(), 1).getDay();
+    const jakarta = toJakartaTime(date);
+    return new Date(jakarta.getFullYear(), jakarta.getMonth(), 1).getDay();
   };
 
   const renderCalendar = () => {
     const daysInMonth = getDaysInMonth(selectedDate);
     const firstDay = getFirstDayOfMonth(selectedDate);
     const days = [];
-    const today = new Date();
+    const todayJakarta = toJakartaTime(new Date());
 
     for (let i = 0; i < firstDay; i++) {
       days.push(<View key={`empty-${i}`} style={styles.calendarDay} />);
@@ -331,23 +371,33 @@ function AbsensiScreen({ user, onLogout }: { user: EngineerUser; onLogout: () =>
 
     for (let day = 1; day <= daysInMonth; day++) {
       const status = getDayStatus(day);
-      const isToday = isSameDay(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day), today);
+      const calendarDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day);
+      const isToday = isSameDayJakarta(calendarDate, todayJakarta);
       const isSelected = selectedDate.getDate() === day;
 
-      let dayStyle = [styles.calendarDay];
-      let textStyle = [styles.calendarDayText];
+      let dayStyle: any[] = [styles.calendarDay];
+      let textStyle: any[] = [styles.calendarDayText];
 
+      // Colors per roleCalender.md: Green=Check-in, Blue=Check-out, Yellow=Late, Orange=No Check-in, Purple=No Check-out
       if (status === 'checked-in') {
+        // Green for check-in only
+        dayStyle.push({ backgroundColor: '#34c759' });
+        textStyle.push({ color: '#fff' });
+      } else if (status === 'checked-out') {
+        // Blue for complete (check-in + check-out)
         dayStyle.push({ backgroundColor: '#007AFF' });
         textStyle.push({ color: '#fff' });
       } else if (status === 'late') {
+        // Yellow for late
         dayStyle.push({ backgroundColor: '#ffcc00' });
         textStyle.push({ color: '#000' });
       } else if (status === 'no-checkin') {
-        dayStyle.push({ backgroundColor: '#ff3b30' });
+        // Orange for no check-in
+        dayStyle.push({ backgroundColor: '#ff9500' });
         textStyle.push({ color: '#fff' });
       } else if (status === 'forget-checkout') {
-        dayStyle.push({ backgroundColor: '#8e8e93' });
+        // Purple for no check-out
+        dayStyle.push({ backgroundColor: '#af52de' });
         textStyle.push({ color: '#fff' });
       } else if (status === 'holiday') {
         textStyle.push({ color: '#ff3b30', fontWeight: '600' });
@@ -376,13 +426,18 @@ function AbsensiScreen({ user, onLogout }: { user: EngineerUser; onLogout: () =>
   };
 
   const selectedDayRecords = (() => {
-    const dateStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDate.getDate()).padStart(2, '0')}`;
-    return records.filter(r => r.check_in && r.check_in.startsWith(dateStr));
+    const jakartaSelected = toJakartaTime(selectedDate);
+    const dateStr = getJakartaDateString(selectedDate);
+    return records.filter(r => {
+      if (!r.check_in) return false;
+      const checkInJakarta = getJakartaDateString(new Date(r.check_in));
+      return checkInJakarta === dateStr;
+    });
   })();
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.screenContainer}>
-      <Text style={styles.title}>Hello, {user.role === 'user' ? 'Field Engineer' : user.name}</Text>
+      <Text style={styles.title}>Hello, {user.name}</Text>
       <Text style={styles.subtitle}>Role: {user.role}{userSite ? ` • ${userSite.name}` : ''}</Text>
 
       {isSubmitting ? (
@@ -407,7 +462,7 @@ function AbsensiScreen({ user, onLogout }: { user: EngineerUser; onLogout: () =>
           </Pressable>
         </View>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center' }}>
-          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+          {['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'].map(d => (
             <Text key={d} style={{ width: 36, textAlign: 'center', fontSize: 10, color: '#8e8e93', margin: 2 }}>{d}</Text>
           ))}
           {renderCalendar()}
@@ -416,7 +471,7 @@ function AbsensiScreen({ user, onLogout }: { user: EngineerUser; onLogout: () =>
 
       <View style={{ marginTop: 16 }}>
         <Text style={{ fontSize: 14, fontWeight: '600', color: '#000', marginBottom: 8 }}>
-          {toJakartaTime(selectedDate).toLocaleString('id-ID', { day: 'numeric', month: 'long', timeZone: 'UTC' })}
+          {toJakartaTime(selectedDate).toLocaleString('id-ID', { day: 'numeric', month: 'long' })}
         </Text>
         {selectedDayRecords.length > 0 ? selectedDayRecords.map((item, idx) => (
           <View key={idx} style={styles.recordCard}>
@@ -436,6 +491,31 @@ function AbsensiScreen({ user, onLogout }: { user: EngineerUser; onLogout: () =>
         )}
       </View>
 
+      {/* Show recent attendance history below calendar */}
+      <View style={{ marginTop: 20 }}>
+        <Text style={[styles.sectionLabel, { marginTop: 0 }]}>Recent History</Text>
+        {records.length > 0 ? records
+          .filter(r => r.check_in)
+          .sort((a, b) => new Date(b.check_in!).getTime() - new Date(a.check_in!).getTime())
+          .slice(0, 5)
+          .map((item, idx) => (
+            <View key={idx} style={styles.recordCard}>
+              <Text style={styles.recordMeta}>
+                {toJakartaTime(new Date(item.check_in!)).toLocaleString('id-ID', { day: 'numeric', month: 'short' })}
+              </Text>
+              <Text style={styles.recordTitle}>
+                {item.employee_name ?? user.name}
+              </Text>
+              <Text style={styles.recordMeta}>Check-in: {item.check_in ? formatTimeJakarta(item.check_in) : "-"}</Text>
+              <Text style={styles.recordMeta}>
+                {item.check_out ? `Check-out: ${formatTimeJakarta(item.check_out)}` : "Not checked out"}
+              </Text>
+            </View>
+          )) : (
+          <Text style={styles.emptyText}>No attendance history</Text>
+        )}
+      </View>
+
       <View style={styles.actionRow}>
         <Pressable style={[styles.primaryButton, styles.flexButton]} disabled={isSubmitting} onPress={() => submitAttendance("check-in")}>
           <Text style={styles.primaryButtonText}>Check-in</Text>
@@ -451,30 +531,34 @@ function AbsensiScreen({ user, onLogout }: { user: EngineerUser; onLogout: () =>
         </Pressable>
       </View>
 
-      <View style={{ marginTop: 12, padding: 10, backgroundColor: '#fff', borderRadius: 12 }}>
-        <Text style={{ fontSize: 12, color: '#8e8e93', marginBottom: 6 }}>Legend:</Text>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-            <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: '#007AFF' }} />
-            <Text style={{ fontSize: 10, color: '#8e8e93' }}>Check-in</Text>
-          </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-            <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: '#ffcc00' }} />
-            <Text style={{ fontSize: 10, color: '#8e8e93' }}>Late</Text>
-          </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-            <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: '#ff3b30' }} />
-            <Text style={{ fontSize: 10, color: '#8e8e93' }}>No Check-in</Text>
-          </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-            <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: '#8e8e93' }} />
-            <Text style={{ fontSize: 10, color: '#8e8e93' }}>No Check-out</Text>
-          </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-            <Text style={{ fontSize: 10, color: '#ff3b30', fontWeight: '600' }}>Red Text = Holiday</Text>
-          </View>
-        </View>
-      </View>
+       <View style={{ marginTop: 12, padding: 10, backgroundColor: '#fff', borderRadius: 12 }}>
+         <Text style={{ fontSize: 12, color: '#8e8e93', marginBottom: 6 }}>Legend:</Text>
+         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+             <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: '#34c759' }} />
+             <Text style={{ fontSize: 10, color: '#8e8e93' }}>Check-in</Text>
+           </View>
+           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+             <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: '#007AFF' }} />
+             <Text style={{ fontSize: 10, color: '#8e8e93' }}>Check-out</Text>
+           </View>
+           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+             <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: '#ffcc00' }} />
+             <Text style={{ fontSize: 10, color: '#8e8e93' }}>Late</Text>
+           </View>
+           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+             <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: '#ff9500' }} />
+             <Text style={{ fontSize: 10, color: '#8e8e93' }}>No Check-in</Text>
+           </View>
+           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+             <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: '#af52de' }} />
+             <Text style={{ fontSize: 10, color: '#8e8e93' }}>No Check-out</Text>
+           </View>
+           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+             <Text style={{ fontSize: 10, color: '#ff3b30', fontWeight: '600' }}>Red Text = Holiday</Text>
+           </View>
+         </View>
+       </View>
     </ScrollView>
   );
 }
@@ -521,30 +605,41 @@ function RiwayatScreen({ user }: { user: EngineerUser }) {
     return () => clearInterval(timer);
   }, [syncAndReload]);
 
-  const getDaysInMonth = (date: Date) => {
-    const year = date.getFullYear();
-    const month = date.getMonth();
-    return new Date(year, month + 1, 0).getDate();
+  const getDaysInMonthRiwayat = (date: Date) => {
+    const jakarta = toJakartaTime(date);
+    return new Date(jakarta.getFullYear(), jakarta.getMonth() + 1, 0).getDate();
   };
 
-  const getFirstDayOfMonth = (date: Date) => {
-    return new Date(date.getFullYear(), date.getMonth(), 1).getDay();
+  const getFirstDayOfMonthRiwayat = (date: Date) => {
+    const jakarta = toJakartaTime(date);
+    return new Date(jakarta.getFullYear(), jakarta.getMonth(), 1).getDay();
   };
 
   const hasAttendanceOnDay = (day: number) => {
-    const dateStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    return records.some(r => r.check_in && r.check_in.startsWith(dateStr));
+    const jakartaSelected = toJakartaTime(selectedDate);
+    const dateStr = `${jakartaSelected.getFullYear()}-${String(jakartaSelected.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    return records.some(r => {
+      if (!r.check_in) return false;
+      const checkInJakarta = getJakartaDateString(new Date(r.check_in));
+      return checkInJakarta === dateStr;
+    });
   };
 
   const getRecordsForDay = (day: number) => {
-    const dateStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    return records.filter(r => r.check_in && r.check_in.startsWith(dateStr));
+    const jakartaSelected = toJakartaTime(selectedDate);
+    const dateStr = `${jakartaSelected.getFullYear()}-${String(jakartaSelected.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    return records.filter(r => {
+      if (!r.check_in) return false;
+      const checkInJakarta = getJakartaDateString(new Date(r.check_in));
+      return checkInJakarta === dateStr;
+    });
   };
 
-  const renderCalendar = () => {
-    const daysInMonth = getDaysInMonth(selectedDate);
-    const firstDay = getFirstDayOfMonth(selectedDate);
+  const renderCalendarRiwayat = () => {
+    const daysInMonth = getDaysInMonthRiwayat(selectedDate);
+    const firstDay = getFirstDayOfMonthRiwayat(selectedDate);
     const days = [];
+    const todayJakarta = toJakartaTime(new Date());
 
     for (let i = 0; i < firstDay; i++) {
       days.push(<View key={`empty-${i}`} style={styles.calendarDay} />);
@@ -552,9 +647,8 @@ function RiwayatScreen({ user }: { user: EngineerUser }) {
 
     for (let day = 1; day <= daysInMonth; day++) {
       const hasRecord = hasAttendanceOnDay(day);
-      const isToday = new Date().getDate() === day &&
-        new Date().getMonth() === selectedDate.getMonth() &&
-        new Date().getFullYear() === selectedDate.getFullYear();
+      const calendarDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day);
+      const isToday = isSameDayJakarta(calendarDate, todayJakarta);
 
       days.push(
         <Pressable
@@ -614,16 +708,16 @@ function RiwayatScreen({ user }: { user: EngineerUser }) {
               </Pressable>
             </View>
             <View style={{flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center'}}>
-              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+              {['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'].map(d => (
                 <Text key={d} style={{width: 36, textAlign: 'center', fontSize: 10, color: '#8e8e93', margin: 2}}>{d}</Text>
               ))}
-              {renderCalendar()}
+              {renderCalendarRiwayat()}
             </View>
           </View>
 
           <View style={{marginTop: 16}}>
             <Text style={{fontSize: 14, fontWeight: '600', color: '#000', marginBottom: 8}}>
-              {selectedDate.toLocaleString('id-ID', { day: 'numeric', month: 'long' })}
+              {toJakartaTime(selectedDate).toLocaleString('id-ID', { day: 'numeric', month: 'long' })}
             </Text>
             {selectedDayRecords.length > 0 ? selectedDayRecords.map((item, idx) => (
               <View key={idx} style={styles.recordCard}>
@@ -1219,30 +1313,39 @@ export default function App() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     setUser(null);
     setEmailInput("");
     setPasswordInput("");
+    // Clear cached user from SQLite (native) or localStorage (web)
+    await cacheSignedInUser(null as any);
   };
 
   useEffect(() => {
     const boot = async () => {
       try {
         await initializeLocalDb();
+
+        // Restore cached user from SQLite (native) or localStorage (web)
+        const cachedUser = await getCachedUser();
+        if (cachedUser) {
+          setUser(cachedUser);
+        }
+
         const localUrl = await getServerConfig("api_base_url");
         if (localUrl) {
           setApiBaseUrl(localUrl);
         } else {
           // Set default based on platform
-          const defaultUrl = Platform.OS === 'android' 
-            ? 'http://192.168.1.21:4000'  // For physical devices
-            : 'http://localhost:4000';     // For iOS/web
+          const defaultUrl = Platform.OS === 'android'
+            ? 'http://192.168.1.21:4000'
+            : 'http://localhost:4000';
           setApiBaseUrl(defaultUrl);
         }
       } catch (err) {
         console.error("Boot error:", err);
-        const fallbackUrl = Platform.OS === 'android' 
-          ? 'http://192.168.1.21:4000' 
+        const fallbackUrl = Platform.OS === 'android'
+          ? 'http://192.168.1.21:4000'
           : 'http://localhost:4000';
         setApiBaseUrl(fallbackUrl);
       } finally {

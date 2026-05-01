@@ -196,6 +196,7 @@ const showTab = (tabName) => {
 
 // Login
 const login = async () => {
+  console.log('Login function called');
   const email = document.getElementById('email')?.value;
   const password = document.getElementById('password')?.value;
 
@@ -388,3 +389,4 @@ document.addEventListener('DOMContentLoaded', () => {
     tab.addEventListener('click', () => showTab(tab.dataset.tab));
   });
 });
+window.handleLogin = login;

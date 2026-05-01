@@ -16,7 +16,8 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Aplikasi membutuhkan lokasi untuk validasi absensi engineer di area site."
-      }
+      },
+      "bundleIdentifier": "com.anonymous.cursor"
     },
     "android": {
       "adaptiveIcon": {

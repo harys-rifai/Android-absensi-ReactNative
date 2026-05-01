@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Debug - Absensi App</title>
+    <style>
+      body { font-family: monospace; padding: 20px; background: #f5f5f5; }
+      .error { color: red; background: #fee; padding: 10px; border: 1px solid red; margin: 10px 0; }
+      .success { color: green; background: #efe; padding: 10px; border: 1px solid green; margin: 10px 0; }
+      .info { color: blue; background: #eef; padding: 10px; border: 1px solid blue; margin: 10px 0; }
+      button { padding: 10px 20px; margin: 5px; cursor: pointer; }
+      input { padding: 8px; margin: 5px; width: 300px; }
+      pre { background: #333; color: #0f0; padding: 10px; overflow: auto; }
+    </style>
+  </head>
+  <body>
+    <h1>Debug Page - Absensi Login</h1>
+    
+    <div id="status"></div>
+    
+    <div>
+      <input id="email" value="user@apsensi.local" placeholder="Email" /><br>
+      <input id="password" type="password" value="Password09" placeholder="Password" /><br>
+      <button onclick="testLogin()">Test Login API</button>
+      <button onclick="testLocalStorage()">Check LocalStorage</button>
+      <button onclick="clearStorage()">Clear Storage</button>
+    </div>
+
+    <h2>Console Output:</h2>
+    <pre id="console"></pre>
+
+    <h2>API Test Result:</h2>
+    <pre id="apiResult"></pre>
+
+    <script>
+      const consoleEl = document.getElementById('console');
+      const apiResult = document.getElementById('apiResult');
+      const statusEl = document.getElementById('status');
+
+      // Override console.log to show on page
+      const originalLog = console.log;
+      const originalError = console.error;
+      
+      console.log = function(...args) {
+        originalLog.apply(console, args);
+        consoleEl.textContent += '[LOG] ' + args.join(' ') + '\n';
+      };
+      
+      console.error = function(...args) {
+        originalError.apply(console, args);
+        consoleEl.textContent += '[ERROR] ' + args.join(' ') + '\n';
+      };
+
+      window.onerror = function(msg, url, lineNo, columnNo, error) {
+        consoleEl.textContent += '[GLOBAL ERROR] ' + msg + ' at line ' + lineNo + '\n';
+        return false;
+      };
+
+      console.log('Debug page loaded at ' + new Date().toISOString());
+
+      async function testLogin() {
+        const email = document.getElementById('email').value;
+        const password = document.getElementById('password').value;
+        
+        console.log('Testing login with:', email);
+        statusEl.className = 'info';
+        statusEl.textContent = 'Testing login...';
+
+        try {
+          const res = await fetch('http://localhost:4000/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password })
+          });
+
+          console.log('Response status:', res.status);
+          const data = await res.json();
+          apiResult.textContent = JSON.stringify(data, null, 2);
+          
+          if (res.ok) {
+            statusEl.className = 'success';
+            statusEl.textContent = 'Login successful! User: ' + data.name;
+            localStorage.setItem('absensi_user', JSON.stringify(data));
+            console.log('User saved to localStorage');
+          } else {
+            statusEl.className = 'error';
+            statusEl.textContent = 'Login failed: ' + (data.error || 'Unknown error');
+          }
+        } catch (err) {
+          console.error('Login error:', err);
+          statusEl.className = 'error';
+          statusEl.textContent = 'Error: ' + err.message;
+        }
+      }
+
+      function testLocalStorage() {
+        const user = localStorage.getItem('absensi_user');
+        if (user) {
+          console.log('Found user in localStorage:', user);
+          statusEl.className = 'success';
+          statusEl.textContent = 'User found in localStorage';
+        } else {
+          console.log('No user in localStorage');
+          statusEl.className = 'info';
+          statusEl.textContent = 'No user in localStorage';
+        }
+      }
+
+      function clearStorage() {
+        localStorage.removeItem('absensi_user');
+        console.log('localStorage cleared');
+        statusEl.className = 'info';
+        statusEl.textContent = 'localStorage cleared';
+      }
+
+      // Test if main app.js loads
+      console.log('Loading main app.js...');
+      const script = document.createElement('script');
+      script.src = '/app.js';
+      script.onload = () => {
+        console.log('app.js loaded successfully');
+        statusEl.className = 'success';
+        statusEl.textContent = 'app.js loaded OK';
+      };
+      script.onerror = (e) => {
+        console.error('Failed to load app.js:', e);
+        statusEl.className = 'error';
+        statusEl.textContent = 'Failed to load app.js';
+      };
+      document.body.appendChild(script);
+    </script>
+  </body>
+</html>

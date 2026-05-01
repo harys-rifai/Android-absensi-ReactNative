@@ -528,6 +528,14 @@ app.post("/overtime/approve-hrd/:id", async (req, res) => {
     res.status(500).json({ error: message });
   }
 });
+
+app.post("/overtime/request", async (req, res) => {
+  try {
+    const { requesterId, overtimeDate, hours, note } = req.body;
+    const id = Number(requesterId || 0);
+    const parsedHours = Number(hours || 0);
+    if (!id || !overtimeDate || parsedHours <= 0) {
+      res.status(400).json({ error: "requesterId, overtimeDate, and hours (>0) are required." });
       return;
     }
 
@@ -535,15 +543,15 @@ app.post("/overtime/approve-hrd/:id", async (req, res) => {
       `INSERT INTO overtime_request (
         employee_id, overtime_date, hours, status, note
       ) VALUES (
-        $1, $2, $3, 'pending', $4
+        $1, $2, $3, 'pending_manager', $4
       )
       RETURNING *`,
       [id, overtimeDate, parsedHours, note || null]
     );
     res.status(201).json(result.rows[0]);
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Failed to request overtime";
+    console.error("Overtime request error:", error);
+    const message = error instanceof Error ? error.message : "Failed to request overtime";
     res.status(500).json({ error: message });
   }
 });

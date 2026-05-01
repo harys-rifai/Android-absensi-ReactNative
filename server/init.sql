@@ -1,9 +1,25 @@
+CREATE TABLE IF NOT EXISTS project_sites (
+  id VARCHAR(50) PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  latitude DOUBLE PRECISION NOT NULL,
+  longitude DOUBLE PRECISION NOT NULL,
+  radius_meters INT DEFAULT 150
+);
+
+INSERT INTO project_sites (id, name, latitude, longitude, radius_meters) VALUES
+  ('jkt-hq', 'Jakarta HQ', -6.2001, 106.8167, 150),
+  ('bdg-plant', 'Bandung Plant', -6.9147, 107.6098, 200),
+  ('sby-field', 'Surabaya Field Office', -7.2575, 112.7521, 200)
+ON CONFLICT (id) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS employee (
   id SERIAL PRIMARY KEY,
   name VARCHAR(100) NOT NULL,
   email VARCHAR(100) UNIQUE NOT NULL,
-  role VARCHAR(20) NOT NULL CHECK (role IN ('user','manager_line','hrd')),
-  password_hash TEXT NOT NULL
+  role VARCHAR(20) NOT NULL CHECK (role IN ('user','manager_line','hrd','admin')),
+  password_hash TEXT NOT NULL,
+  site_id VARCHAR(50) REFERENCES project_sites(id),
+  line_manager_id INT REFERENCES employee(id)
 );
 
 CREATE TABLE IF NOT EXISTS attendance (
@@ -24,8 +40,14 @@ CREATE TABLE IF NOT EXISTS leave_request (
   start_date DATE NOT NULL,
   end_date DATE NOT NULL,
   leave_type VARCHAR(20) NOT NULL DEFAULT 'annual',
-  status VARCHAR(20) NOT NULL DEFAULT 'approved',
-  note TEXT
+  status VARCHAR(20) NOT NULL DEFAULT 'pending_manager',
+  note TEXT,
+  manager_approved_by INT REFERENCES employee(id),
+  manager_approved_at TIMESTAMPTZ,
+  hrd_approved_by INT REFERENCES employee(id),
+  hrd_approved_at TIMESTAMPTZ,
+  manager_remark TEXT,
+  hrd_remark TEXT
 );
 
 CREATE TABLE IF NOT EXISTS overtime_request (
@@ -90,5 +112,5 @@ CREATE TABLE IF NOT EXISTS server_config (
 );
 
 INSERT INTO server_config (key, value)
-SELECT 'api_base_url', 'http://10.0.2.2:4000'
+SELECT 'api_base_url', 'http://192.168.1.21:4000'
 WHERE NOT EXISTS (SELECT 1 FROM server_config WHERE key = 'api_base_url');

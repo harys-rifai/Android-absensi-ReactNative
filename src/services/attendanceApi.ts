@@ -1,15 +1,20 @@
 import { Platform } from "react-native";
 import { AttendanceRecord, EngineerUser, UserRole } from "../types/attendance";
 
-// Default server IP - otomatis menggunakan IP ini
+// Default server IP - automatically use this IP
 const SERVER_IP = "192.168.1.21";
 const SERVER_PORT = "4000";
 
-// Default URL berdasarkan platform
+// Default URL based on platform
 const getDefaultUrl = (): string => {
   if (Platform.OS === "android") {
-    // Coba gunakan IP server langsung untuk USB debugging
+    // Check if running on emulator (10.0.2.2 is special alias for host localhost)
+    // For physical devices on same network, use actual server IP
     return `http://${SERVER_IP}:${SERVER_PORT}`;
+  }
+  if (Platform.OS === "ios") {
+    // iOS simulator can use localhost
+    return "http://localhost:4000";
   }
   return "http://localhost:4000";
 };
@@ -23,9 +28,6 @@ export const setApiBaseUrl = (url: string): void => {
 export const getApiBaseUrl = (): string => {
   return API_BASE_URL;
 };
-
-const defaultBaseUrl =
-  Platform.OS === "android" ? "http://10.0.2.2:4000" : "http://localhost:4000";
 
 type LoginPayload = {
   email: string;
@@ -46,19 +48,25 @@ export type NewsItem = {
 export const loginUser = async (
   payload: LoginPayload
 ): Promise<EngineerUser> => {
-  const response = await fetch(`${API_BASE_URL}/auth/login`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
+  try {
+    const response = await fetch(`${API_BASE_URL}/auth/login`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
 
-  if (!response.ok) {
-    throw new Error("Login gagal. Periksa email/password.");
+    if (!response.ok) {
+      throw new Error("Login failed. Check email/password.");
+    }
+
+    return (await response.json()) as EngineerUser;
+  } catch (error) {
+    // If server is unreachable, try to load from local storage
+    console.log("Server unreachable, using local data");
+    throw new Error("Cannot connect to server. Please check your internet connection.");
   }
-
-  return (await response.json()) as EngineerUser;
 };
 
 export const fetchAttendanceRecords = async (

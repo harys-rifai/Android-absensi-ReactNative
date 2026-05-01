@@ -1,0 +1,811 @@
+import { StatusBar } from "expo-status-bar";
+import * as Location from "expo-location";
+import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { NavigationContainer } from "@react-navigation/native";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Modal,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  Platform,
+} from "react-native";
+import { PROJECT_SITES } from "./src/constants/sites";
+import {
+  fetchAttendanceRecords,
+  fetchNews,
+  getApiBaseUrl,
+  loginUser,
+  setApiBaseUrl,
+  syncAttendanceRecords,
+} from "./src/services/attendanceApi";
+import {
+  AttendanceRecord,
+  EngineerUser,
+  Site,
+} from "./src/types/attendance";
+import { haversineDistanceMeters } from "./src/utils/geofence";
+import {
+  cacheSignedInUser,
+  getLocalAttendanceForUser,
+  getLocalNews,
+  getServerConfig,
+  getUnsyncedAttendance,
+  initializeLocalDb,
+  insertSyncLog,
+  markAttendanceSynced,
+  NewsItem,
+  saveCheckInLocal,
+  saveCheckOutLocal,
+  saveNewsLocalBatch,
+  saveServerConfig,
+} from "./src/services/localDb";
+
+const Tab = createBottomTabNavigator();
+
+const formatTime = (iso: string): string => {
+  return new Date(iso).toLocaleString("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+};
+
+function AbsensiScreen({ user, onLogout }: { user: EngineerUser; onLogout: () => void }) {
+  const [selectedSiteId, setSelectedSiteId] = useState(PROJECT_SITES[0].id);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [lastMessage, setLastMessage] = useState("No attendance activity yet.");
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const selectedSite: Site = useMemo(() => {
+    const found = PROJECT_SITES.find((site) => site.id === selectedSiteId);
+    return found ?? PROJECT_SITES[0];
+  }, [selectedSiteId]);
+
+  const runSync = useCallback(async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    try {
+      const unsynced = await getUnsyncedAttendance();
+      if (unsynced.length === 0) {
+        setLastMessage("No data needs to be synced.");
+        setIsSyncing(false);
+        return;
+      }
+      const payload = unsynced.filter((row) => row.employee_id === user.id);
+      if (payload.length === 0) {
+        setIsSyncing(false);
+        return;
+      }
+      const syncedRefs = await syncAttendanceRecords(payload);
+      await markAttendanceSynced(syncedRefs);
+      setLastMessage(`Sync successful: ${syncedRefs.length} records sent.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Sync failed to server.";
+      setLastMessage("Sync failed. Data remains safe in local storage.");
+    }
+    setIsSyncing(false);
+  }, [isSyncing, user]);
+
+  const submitAttendance = async (mode: "check-in" | "check-out") => {
+    if (user.role !== "user") {
+      Alert.alert("Access Denied", "Only users with 'user' role can check-in/check-out.");
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (permission.status !== "granted") {
+        Alert.alert("Location Permission Required", "Enable location permission to perform attendance.");
+        return;
+      }
+      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      const { latitude, longitude } = position.coords;
+      const distance = haversineDistanceMeters(latitude, longitude, selectedSite.latitude, selectedSite.longitude);
+      const withinGeofence = distance <= selectedSite.radiusMeters;
+      const locationType = withinGeofence ? "onsite" : "offsite";
+
+      if (mode === "check-in") {
+        await saveCheckInLocal(user.id, latitude, longitude, locationType);
+      } else {
+        const updated = await saveCheckOutLocal(user.id, latitude, longitude, locationType);
+        if (!updated) {
+          Alert.alert("Check-out Failed", "No open check-in record found.");
+          return;
+        }
+      }
+      setLastMessage(`${mode === "check-in" ? "Check-in" : "Check-out"} saved locally (${locationType === "onsite" ? "inside area" : "outside area"}, distance ${Math.round(distance)}m).`);
+      await runSync();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "An unknown error occurred.";
+      Alert.alert("Attendance Failed", message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  useEffect(() => {
+    const timer = setInterval(() => { void runSync(); }, 15 * 60 * 1000);
+    return () => clearInterval(timer);
+  }, [runSync]);
+
+  return (
+    <ScrollView style={styles.container} contentContainerStyle={styles.screenContainer}>
+      <Text style={styles.title}>Hello, {user.name}</Text>
+      <Text style={styles.subtitle}>Role: {user.role}</Text>
+
+      {user.role === "user" ? (
+        <>
+          <Text style={styles.sectionLabel}>Select project site</Text>
+          <View style={styles.siteList}>
+            {PROJECT_SITES.map((site) => {
+              const active = site.id === selectedSiteId;
+              return (
+                <Pressable
+                  key={site.id}
+                  style={[styles.siteButton, active && styles.siteButtonActive]}
+                  onPress={() => setSelectedSiteId(site.id)}
+                >
+                  <Text style={[styles.siteName, active && styles.siteNameActive]}>{site.name}</Text>
+                  <Text style={[styles.siteMeta, active && styles.siteNameActive]}>Radius {site.radiusMeters}m</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <View style={styles.actionRow}>
+            <Pressable style={[styles.primaryButton, styles.flexButton]} disabled={isSubmitting} onPress={() => submitAttendance("check-in")}>
+              <Text style={styles.primaryButtonText}>Check-in</Text>
+            </Pressable>
+            <Pressable style={[styles.secondaryButton, styles.flexButton]} disabled={isSubmitting} onPress={() => submitAttendance("check-out")}>
+              <Text style={styles.secondaryButtonText}>Check-out</Text>
+            </Pressable>
+          </View>
+        </>
+      ) : null}
+
+      <View style={styles.actionRow}>
+        <Pressable style={[styles.secondaryButton, styles.flexButton]} disabled={isSyncing} onPress={() => { void runSync(); }}>
+          <Text style={styles.secondaryButtonText}>{isSyncing ? "Syncing..." : "Sync Now"}</Text>
+        </Pressable>
+      </View>
+
+      {isSubmitting ? (
+        <View style={styles.loadingRow}>
+          <ActivityIndicator />
+          <Text style={styles.loadingText}>Getting GPS location...</Text>
+        </View>
+      ) : null}
+      <Text style={styles.infoText}>{lastMessage}</Text>
+    </ScrollView>
+  );
+}
+
+function RiwayatScreen({ user }: { user: EngineerUser }) {
+  const [records, setRecords] = useState<AttendanceRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const loadAttendance = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const remote = await fetchAttendanceRecords(user.id, user.role);
+      setRecords(remote);
+    } catch {
+      const local = await getLocalAttendanceForUser(user.id);
+      setRecords(local);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    loadAttendance();
+    const timer = setInterval(() => { void loadAttendance(); }, 15 * 60 * 1000);
+    return () => clearInterval(timer);
+  }, [loadAttendance]);
+
+  return (
+    <ScrollView style={styles.container} contentContainerStyle={styles.screenContainer}>
+      <Text style={styles.title}>Attendance History</Text>
+      {isLoading ? (
+        <ActivityIndicator />
+      ) : (
+        <FlatList
+          data={records}
+          keyExtractor={(item) => item.client_ref || String(item.id ?? Math.random())}
+          scrollEnabled={false}
+          ListEmptyComponent={<Text style={styles.emptyText}>No attendance records yet.</Text>}
+          renderItem={({ item }) => (
+            <View style={styles.recordCard}>
+              <Text style={styles.recordTitle}>
+                {(item.employee_name ?? user.name) + (item.check_out ? " (Completed)" : " (Active)")}
+              </Text>
+              <Text style={styles.recordMeta}>Check-in: {item.check_in ? formatTime(item.check_in) : "-"}</Text>
+              <Text style={[styles.recordMeta, item.synced ? styles.okText : styles.warnText]}>
+                {item.check_out ? `Check-out: ${formatTime(item.check_out)}` : "Not checked out yet"}
+              </Text>
+              <Text style={[styles.recordMeta, item.synced ? styles.okText : styles.warnText]}>
+                {item.synced ? "Synced to server" : "Not synced (local)"}
+              </Text>
+            </View>
+          )}
+        />
+      )}
+    </ScrollView>
+  );
+}
+
+function BeritaScreen() {
+  const [news, setNews] = useState<NewsItem[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const loadNews = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const remoteNews = await fetchNews();
+      setNews(remoteNews);
+      await saveNewsLocalBatch(remoteNews);
+    } catch {
+      const localNews = await getLocalNews();
+      setNews(localNews);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadNews();
+    const timer = setInterval(() => { void loadNews(); }, 15 * 60 * 1000);
+    return () => clearInterval(timer);
+  }, [loadNews]);
+
+  return (
+    <ScrollView style={styles.container} contentContainerStyle={styles.screenContainer}>
+      <Text style={styles.title}>News & Updates</Text>
+      {isLoading ? (
+        <ActivityIndicator />
+      ) : (
+        <FlatList
+          data={news}
+          keyExtractor={(item) => String(item.remote_id || item.id)}
+          scrollEnabled={false}
+          ListEmptyComponent={<Text style={styles.emptyText}>No news available.</Text>}
+          renderItem={({ item }) => (
+            <View style={styles.newsCard}>
+              <Text style={styles.newsTitle}>{item.title}</Text>
+              <Text style={styles.newsContent}>{item.content}</Text>
+              {item.author_name ? <Text style={styles.newsAuthor}>By: {item.author_name}</Text> : null}
+              {item.published_at ? (
+                <Text style={styles.newsDate}>
+                  {new Date(item.published_at).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}
+                </Text>
+              ) : null}
+            </View>
+          )}
+        />
+      )}
+      <Pressable style={[styles.secondaryButton, { marginTop: 12 }]} onPress={() => { void loadNews(); }}>
+        <Text style={styles.secondaryButtonText}>{isLoading ? "Loading..." : "Refresh News"}</Text>
+      </Pressable>
+    </ScrollView>
+  );
+}
+
+function PengaturanScreen({ user, onLogout }: { user: EngineerUser; onLogout: () => void }) {
+  const [settingsVisible, setSettingsVisible] = useState(false);
+  const [serverUrlInput, setServerUrlInput] = useState("");
+
+  const saveServerUrl = async () => {
+    if (!serverUrlInput.trim()) {
+      Alert.alert("Error", "Server URL cannot be empty");
+      return;
+    }
+    try {
+      await saveServerConfig("api_base_url", serverUrlInput.trim());
+      setApiBaseUrl(serverUrlInput.trim());
+      setSettingsVisible(false);
+      Alert.alert("Success", "Server URL saved. Restart the app to apply changes.");
+    } catch (error) {
+      Alert.alert("Error", "Failed to save server URL");
+    }
+  };
+
+  const loadCurrentUrl = async () => {
+    const url = await getServerConfig("api_base_url");
+    setServerUrlInput(url || getApiBaseUrl());
+  };
+
+  useEffect(() => {
+    if (settingsVisible) {
+      loadCurrentUrl();
+    }
+  }, [settingsVisible]);
+
+  return (
+    <ScrollView style={styles.container} contentContainerStyle={styles.screenContainer}>
+      <Text style={styles.title}>Settings</Text>
+      <Text style={styles.subtitle}>User: {user.name} ({user.role})</Text>
+
+      <Pressable style={[styles.secondaryButton, { marginTop: 20 }]} onPress={() => setSettingsVisible(true)}>
+        <Text style={styles.secondaryButtonText}>Server Settings</Text>
+      </Pressable>
+
+      <Pressable style={[styles.secondaryButton, { marginTop: 12 }]} onPress={onLogout}>
+        <Text style={[styles.secondaryButtonText, { color: "#dc2626" }]}>Logout</Text>
+      </Pressable>
+
+      <Modal visible={settingsVisible} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Server Settings</Text>
+            <Text style={styles.modalSubtitle}>Enter API Server URL (e.g.: http://192.168.1.21:4000)</Text>
+            <TextInput style={styles.input} placeholder="http://IP-ADDRESS:4000" value={serverUrlInput} onChangeText={setServerUrlInput} autoCapitalize="none" keyboardType="url" />
+            <Text style={styles.modalHint}>
+              • Android Emulator: http://10.0.2.2:4000{"\n"}
+              • USB Debugging: http://192.168.1.21:4000{"\n"}
+              • Web: http://localhost:4000
+            </Text>
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+              <Pressable style={[styles.secondaryButton, { flex: 1 }]} onPress={() => setServerUrlInput('http://10.0.2.2:4000')}>
+                <Text style={styles.secondaryButtonText}>Emulator</Text>
+              </Pressable>
+              <Pressable style={[styles.secondaryButton, { flex: 1 }]} onPress={() => setServerUrlInput('http://192.168.1.21:4000')}>
+                <Text style={styles.secondaryButtonText}>USB</Text>
+              </Pressable>
+              <Pressable style={[styles.secondaryButton, { flex: 1 }]} onPress={() => setServerUrlInput('http://localhost:4000')}>
+                <Text style={styles.secondaryButtonText}>Web</Text>
+              </Pressable>
+            </View>
+            <View style={styles.modalButtonRow}>
+              <Pressable style={[styles.secondaryButton, styles.flexButton]} onPress={() => setSettingsVisible(false)}>
+                <Text style={styles.secondaryButtonText}>Cancel</Text>
+              </Pressable>
+              <Pressable style={[styles.primaryButton, styles.flexButton]} onPress={saveServerUrl}>
+                <Text style={styles.primaryButtonText}>Save</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </ScrollView>
+  );
+}
+
+export default function App() {
+  const [emailInput, setEmailInput] = useState("");
+  const [passwordInput, setPasswordInput] = useState("");
+  const [user, setUser] = useState<EngineerUser | null>(null);
+  const [isBooting, setIsBooting] = useState(true);
+
+  const handleLogin = async () => {
+    const email = emailInput.trim().toLowerCase();
+    const password = passwordInput.trim();
+    if (!email || !password) {
+      Alert.alert("Incomplete Data", "Please fill in email and password.");
+      return;
+    }
+    try {
+      const signedUser = await loginUser({ email, password });
+      setUser(signedUser);
+      await cacheSignedInUser(signedUser);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Login failed.";
+      Alert.alert("Login Failed", message);
+    }
+  };
+
+  const handleLogout = () => {
+    setUser(null);
+    setEmailInput("");
+    setPasswordInput("");
+  };
+
+  useEffect(() => {
+    const boot = async () => {
+      try {
+        await initializeLocalDb();
+        const localUrl = await getServerConfig("api_base_url");
+        if (localUrl) {
+          setApiBaseUrl(localUrl);
+        }
+      } catch (err) {
+        console.error("Boot error:", err);
+      } finally {
+        setIsBooting(false);
+      }
+    };
+    void boot();
+  }, []);
+
+  if (isBooting) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.loginContainer}>
+          <ActivityIndicator />
+          <Text style={styles.subtitle}>Preparing local database...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!user) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar style="dark" />
+        <View style={styles.topNav}>
+          <View style={styles.topNavLine} />
+        </View>
+        <View style={styles.loginContainer}>
+          <Text style={styles.title}>Hybrid Attendance</Text>
+          <Text style={styles.subtitle}>Login from Postgres, user saved locally.</Text>
+          <TextInput style={styles.input} placeholder="Email" value={emailInput} onChangeText={setEmailInput} autoCapitalize="none" keyboardType="email-address" />
+          <TextInput style={styles.input} placeholder="Password" value={passwordInput} onChangeText={setPasswordInput} secureTextEntry />
+          <Pressable style={styles.primaryButton} onPress={handleLogin}>
+            <Text style={styles.primaryButtonText}>Sign In</Text>
+          </Pressable>
+          <Text style={styles.subtitle}>Demo account: user@apsensi.local / Password09</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar style="dark" />
+      <View style={styles.topNav}>
+        <View style={styles.topNavLine} />
+      </View>
+      <NavigationContainer>
+        <Tab.Navigator
+          screenOptions={{
+            tabBarActiveTintColor: "#007AFF",
+            tabBarInactiveTintColor: "#8E8E93",
+            headerShown: false,
+            tabBarStyle: {
+              backgroundColor: 'rgba(255, 255, 255, 0.95)',
+              borderTopWidth: 0.5,
+              borderTopColor: 'rgba(0,0,0,0.1)',
+              height: 60,
+              paddingBottom: 4,
+              paddingTop: 4,
+              elevation: 8,
+              shadowColor: '#000',
+              shadowOffset: { width:0, height: -2 },
+              shadowOpacity: 0.1,
+              shadowRadius: 8,
+            },
+            tabBarItemStyle: {
+              borderRadius: 8,
+              marginHorizontal: 4,
+            },
+            tabBarLabelStyle: {
+              fontSize: 10,
+              fontWeight: '600',
+              marginBottom: 2,
+            },
+          }}
+        >
+          <Tab.Screen name="Attendance" options={{ tabBarLabel: 'Attendance' }}>{() => <AbsensiScreen user={user} onLogout={handleLogout} />}</Tab.Screen>
+          <Tab.Screen name="History" options={{ tabBarLabel: 'History' }}>{() => <RiwayatScreen user={user} />}</Tab.Screen>
+          <Tab.Screen name="News" options={{ tabBarLabel: 'News' }}>{() => <BeritaScreen />}</Tab.Screen>
+          <Tab.Screen name="Settings" options={{ tabBarLabel: 'Settings' }}>{() => <PengaturanScreen user={user} onLogout={handleLogout} />}</Tab.Screen>
+        </Tab.Navigator>
+      </NavigationContainer>
+    </SafeAreaView>
+  );
+}
+    try {
+      const signedUser = await loginUser({ email, password });
+      setUser(signedUser);
+      await cacheSignedInUser(signedUser);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Login gagal.";
+      Alert.alert("Login gagal", message);
+    }
+  };
+
+  const handleLogout = () => {
+    setUser(null);
+    setEmailInput("");
+    setPasswordInput("");
+  };
+
+  useEffect(() => {
+    const boot = async () => {
+      try {
+        await initializeLocalDb();
+        const localUrl = await getServerConfig("api_base_url");
+        if (localUrl) {
+          setApiBaseUrl(localUrl);
+        }
+      } catch (err) {
+        console.error("Boot error:", err);
+      } finally {
+        setIsBooting(false);
+      }
+    };
+    void boot();
+  }, []);
+
+  if (isBooting) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.loginContainer}>
+          <ActivityIndicator />
+          <Text style={styles.subtitle}>Menyiapkan database lokal SQLite...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!user) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar style="dark" />
+        <View style={styles.loginContainer}>
+          <Text style={styles.title}>Hybrid Attendance</Text>
+          <Text style={styles.subtitle}>Login dibaca dari Postgres, user disimpan manual ke SQLite.</Text>
+          <TextInput style={styles.input} placeholder="Email" value={emailInput} onChangeText={setEmailInput} autoCapitalize="none" keyboardType="email-address" />
+          <TextInput style={styles.input} placeholder="Password" value={passwordInput} onChangeText={setPasswordInput} secureTextEntry />
+          <Pressable style={styles.primaryButton} onPress={handleLogin}>
+            <Text style={styles.primaryButtonText}>Masuk</Text>
+          </Pressable>
+          <Text style={styles.subtitle}>Demo account: user@apsensi.local / Password09</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar style="dark" />
+      <NavigationContainer>
+        <Tab.Navigator
+          screenOptions={{
+            tabBarActiveTintColor: "#1d4ed8",
+            tabBarInactiveTintColor: "#6b7280",
+            headerShown: false,
+          }}
+        >
+          <Tab.Screen name="Absensi">{() => <AbsensiScreen user={user} onLogout={handleLogout} />}</Tab.Screen>
+          <Tab.Screen name="Riwayat">{() => <RiwayatScreen user={user} />}</Tab.Screen>
+          <Tab.Screen name="Berita">{() => <BeritaScreen />}</Tab.Screen>
+          <Tab.Screen name="Pengaturan">{() => <PengaturanScreen user={user} onLogout={handleLogout} />}</Tab.Screen>
+        </Tab.Navigator>
+      </NavigationContainer>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: "#f5f7fb",
+  },
+  container: {
+    flex: 1,
+  },
+  screenContainer: {
+    paddingTop: 60,
+    paddingHorizontal: 18,
+    paddingBottom: 80,
+  },
+  topNav: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+    zIndex: 100,
+    paddingTop: Platform.OS === 'ios' ? 8 : 12,
+  },
+  topNavLine: {
+    width: 134,
+    height: 5,
+    backgroundColor: 'rgba(0,0,0,0.25)',
+    borderRadius: 3,
+  },
+  loginContainer: {
+    flex: 1,
+    justifyContent: "center",
+    padding: 20,
+    gap: 12,
+    backgroundColor: "#f5f7fb",
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  subtitle: {
+    color: "#4b5563",
+    marginBottom: 4,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: "#d1d5db",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: "#ffffff",
+  },
+  primaryButton: {
+    backgroundColor: "#007AFF",
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
+  primaryButtonText: {
+    color: "#ffffff",
+    fontWeight: "600",
+  },
+  secondaryButton: {
+    backgroundColor: "#ffffff",
+    borderRadius: 8,
+    borderColor: "#007AFF",
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
+  secondaryButtonText: {
+    color: "#007AFF",
+    fontWeight: "600",
+  },
+  sectionLabel: {
+    marginTop: 18,
+    marginBottom: 10,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  siteList: {
+    gap: 8,
+  },
+  siteButton: {
+    backgroundColor: "#e5e7eb",
+    borderRadius: 8,
+    padding: 12,
+  },
+  siteButtonActive: {
+    backgroundColor: "#dbeafe",
+    borderWidth: 1,
+    borderColor: "#60a5fa",
+  },
+  siteName: {
+    color: "#111827",
+    fontWeight: "600",
+  },
+  siteNameActive: {
+    color: "#1e3a8a",
+  },
+  siteMeta: {
+    color: "#374151",
+    marginTop: 2,
+  },
+  actionRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 14,
+  },
+  flexButton: {
+    flex: 1,
+  },
+  loadingRow: {
+    marginTop: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  loadingText: {
+    color: "#4b5563",
+  },
+  infoText: {
+    marginTop: 10,
+    color: "#1f2937",
+  },
+  emptyText: {
+    color: "#6b7280",
+    marginTop: 6,
+  },
+  recordCard: {
+    backgroundColor: "#ffffff",
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+  },
+  recordTitle: {
+    fontWeight: "700",
+    color: "#111827",
+  },
+  recordMeta: {
+    color: "#4b5563",
+    marginTop: 2,
+  },
+  okText: {
+    color: "#166534",
+  },
+  warnText: {
+    color: "#b45309",
+  },
+  newsCard: {
+    backgroundColor: "#ffffff",
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+  },
+  newsTitle: {
+    fontWeight: "700",
+    fontSize: 16,
+    color: "#111827",
+    marginBottom: 4,
+  },
+  newsContent: {
+    color: "#4b5563",
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 6,
+  },
+  newsAuthor: {
+    color: "#6b7280",
+    fontSize: 12,
+    fontStyle: "italic",
+  },
+  newsDate: {
+    color: "#6b7280",
+    fontSize: 12,
+    marginTop: 2,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalContent: {
+    backgroundColor: "#ffffff",
+    borderRadius: 12,
+    padding: 20,
+    width: "85%",
+    maxWidth: 400,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#111827",
+    marginBottom: 8,
+  },
+  modalSubtitle: {
+    color: "#4b5563",
+    fontSize: 14,
+    marginBottom: 16,
+  },
+  modalHint: {
+    color: "#6b7280",
+    fontSize: 12,
+    marginTop: 8,
+    marginBottom: 16,
+    lineHeight: 18,
+  },
+  modalButtonRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 8,
+  },
+});

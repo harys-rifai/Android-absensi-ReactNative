@@ -5,6 +5,8 @@ export type EngineerUser = {
   name: string;
   email: string;
   role: UserRole;
+  site_id?: string;
+  line_manager_id?: number;
 };
 
 export type Site = {

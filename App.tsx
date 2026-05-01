@@ -73,26 +73,52 @@ const isHoliday = (date: Date): boolean => {
   return HOLIDAYS_2026.includes(dateStr);
 };
 
-const formatTime = (iso: string): string => {
-  return new Date(iso).toLocaleString("en-US", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
-};
+  const toJakartaTime = (date: Date): Date => {
+    return new Date(date.getTime() + (7 * 60 * 60 * 1000));
+  };
+
+  const formatTime = (iso: string): string => {
+    try {
+      const d = new Date(iso);
+      const jakarta = toJakartaTime(d);
+      return jakarta.toLocaleString("id-ID", {
+        day: 'numeric',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      });
+    } catch {
+      return iso;
+    }
+  };
+
+  const formatDateJakarta = (date: Date): string => {
+    const jakarta = toJakartaTime(date);
+    return jakarta.toLocaleString('id-ID', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    });
+  };
 
 function AbsensiScreen({ user, onLogout }: { user: EngineerUser; onLogout: () => void }) {
-  const [selectedSiteId, setSelectedSiteId] = useState(PROJECT_SITES[0].id);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [lastMessage, setLastMessage] = useState("No attendance activity yet.");
   const [isSyncing, setIsSyncing] = useState(false);
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [isLoadingRecords, setIsLoadingRecords] = useState(false);
+  const [userSite, setUserSite] = useState<Site | null>(null);
 
-  const selectedSite: Site = useMemo(() => {
-    const found = PROJECT_SITES.find((site) => site.id === selectedSiteId);
-    return found ?? PROJECT_SITES[0];
-  }, [selectedSiteId]);
+  const selectedSite: Site = userSite ?? PROJECT_SITES[0];
+
+  useEffect(() => {
+    if (user.site_id) {
+      const site = PROJECT_SITES.find(s => s.id === user.site_id);
+      if (site) setUserSite(site);
+    }
+  }, [user.site_id]);
 
   const loadAttendance = useCallback(async () => {
     setIsLoadingRecords(true);
@@ -140,10 +166,6 @@ function AbsensiScreen({ user, onLogout }: { user: EngineerUser; onLogout: () =>
   }, [loadAttendance, runSync]);
 
   const submitAttendance = async (mode: "check-in" | "check-out") => {
-    if (user.role !== "user" && user.role !== "hrd") {
-      Alert.alert("Access Denied", "Only users with 'user' or 'hrd' role can check-in/check-out.");
-      return;
-    }
     setIsSubmitting(true);
     try {
       const permission = await Location.getForegroundPermissionsAsync();
@@ -155,6 +177,7 @@ function AbsensiScreen({ user, onLogout }: { user: EngineerUser; onLogout: () =>
             "Please enable location access in Settings to perform attendance. Go to Settings > Apps > [App Name] > Permissions > Location.",
             [{ text: "OK" }]
           );
+          setIsSubmitting(false);
           return;
         }
       }
@@ -176,11 +199,13 @@ function AbsensiScreen({ user, onLogout }: { user: EngineerUser; onLogout: () =>
           `GPS accuracy is ${Math.round(accuracy)}m (minimum 100m required). Please move to an open area and try again.`,
           [{ text: "Retry" }, { text: "Continue", onPress: () => submitAttendance(mode) }]
         );
+        setIsSubmitting(false);
         return;
       }
 
       if (!latitude || !longitude) {
         Alert.alert("GPS Error", "Unable to get valid GPS coordinates. Please try again.");
+        setIsSubmitting(false);
         return;
       }
 
@@ -194,6 +219,7 @@ function AbsensiScreen({ user, onLogout }: { user: EngineerUser; onLogout: () =>
         const updated = await saveCheckOutLocal(user.id, latitude, longitude, locationType);
         if (!updated) {
           Alert.alert("Check-out Failed", "No open check-in record found.");
+          setIsSubmitting(false);
           return;
         }
       }
@@ -216,12 +242,34 @@ function AbsensiScreen({ user, onLogout }: { user: EngineerUser; onLogout: () =>
   const isLate = (checkInStr: string) => {
     try {
       const d = new Date(checkInStr);
+      // Convert to Jakarta time (UTC+7)
       const jakartaTime = new Date(d.getTime() + (7 * 60 * 60 * 1000));
       const hours = jakartaTime.getUTCHours();
       const minutes = jakartaTime.getUTCMinutes();
       return (hours > 9) || (hours === 9 && minutes > 0);
     } catch {
       return false;
+    }
+  };
+
+  const toJakartaTime = (date: Date): Date => {
+    return new Date(date.getTime() + (7 * 60 * 60 * 1000));
+  };
+
+  const formatTimeJakarta = (iso: string): string => {
+    try {
+      const d = new Date(iso);
+      const jakarta = toJakartaTime(d);
+      return jakarta.toLocaleString("id-ID", {
+        day: 'numeric',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        timeZone: 'UTC'
+      });
+    } catch {
+      return iso;
     }
   };
 
@@ -325,43 +373,7 @@ function AbsensiScreen({ user, onLogout }: { user: EngineerUser; onLogout: () =>
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.screenContainer}>
       <Text style={styles.title}>Hello, {user.role === 'user' ? 'Field Engineer' : user.name}</Text>
-      <Text style={styles.subtitle}>Role: {user.role}</Text>
-
-      {user.role === "user" ? (
-        <>
-          <Text style={styles.sectionLabel}>Select project site</Text>
-          <View style={styles.siteList}>
-            {PROJECT_SITES.map((site) => {
-              const active = site.id === selectedSiteId;
-              return (
-                <Pressable
-                  key={site.id}
-                  style={[styles.siteButton, active && styles.siteButtonActive]}
-                  onPress={() => setSelectedSiteId(site.id)}
-                >
-                  <Text style={[styles.siteName, active && styles.siteNameActive]}>{site.name}</Text>
-                  <Text style={[styles.siteMeta, active && styles.siteNameActive]}>Radius {site.radiusMeters}m</Text>
-                </Pressable>
-              );
-            })}
-          </View>
-
-          <View style={styles.actionRow}>
-            <Pressable style={[styles.primaryButton, styles.flexButton]} disabled={isSubmitting} onPress={() => submitAttendance("check-in")}>
-              <Text style={styles.primaryButtonText}>Check-in</Text>
-            </Pressable>
-            <Pressable style={[styles.secondaryButton, styles.flexButton]} disabled={isSubmitting} onPress={() => submitAttendance("check-out")}>
-              <Text style={styles.secondaryButtonText}>Check-out</Text>
-            </Pressable>
-          </View>
-        </>
-      ) : null}
-
-      <View style={styles.actionRow}>
-        <Pressable style={[styles.secondaryButton, styles.flexButton]} disabled={isSyncing} onPress={() => { void runSync(); }}>
-          <Text style={styles.secondaryButtonText}>{isSyncing ? "Syncing..." : "Sync Now"}</Text>
-        </Pressable>
-      </View>
+      <Text style={styles.subtitle}>Role: {user.role}{userSite ? ` • ${userSite.name}` : ''}</Text>
 
       {isSubmitting ? (
         <View style={styles.loadingRow}>
@@ -378,7 +390,7 @@ function AbsensiScreen({ user, onLogout }: { user: EngineerUser; onLogout: () =>
             <Text style={{ color: '#007AFF', fontSize: 18 }}>‹</Text>
           </Pressable>
           <Text style={styles.calendarTitle}>
-            {selectedDate.toLocaleString('id-ID', { month: 'long', year: 'numeric' })}
+            {formatDateJakarta(selectedDate)}
           </Text>
           <Pressable onPress={() => setSelectedDate(new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1))}>
             <Text style={{ color: '#007AFF', fontSize: 18 }}>›</Text>
@@ -394,16 +406,16 @@ function AbsensiScreen({ user, onLogout }: { user: EngineerUser; onLogout: () =>
 
       <View style={{ marginTop: 16 }}>
         <Text style={{ fontSize: 14, fontWeight: '600', color: '#000', marginBottom: 8 }}>
-          {selectedDate.toLocaleString('id-ID', { day: 'numeric', month: 'long' })}
+          {toJakartaTime(selectedDate).toLocaleString('id-ID', { day: 'numeric', month: 'long', timeZone: 'UTC' })}
         </Text>
         {selectedDayRecords.length > 0 ? selectedDayRecords.map((item, idx) => (
           <View key={idx} style={styles.recordCard}>
             <Text style={styles.recordTitle}>
               {item.employee_name ?? user.name}
             </Text>
-            <Text style={styles.recordMeta}>Check-in: {item.check_in ? formatTime(item.check_in) : "-"}</Text>
+            <Text style={styles.recordMeta}>Check-in: {item.check_in ? formatTimeJakarta(item.check_in) : "-"}</Text>
             <Text style={styles.recordMeta}>
-              {item.check_out ? `Check-out: ${formatTime(item.check_out)}` : "Not checked out"}
+              {item.check_out ? `Check-out: ${formatTimeJakarta(item.check_out)}` : "Not checked out"}
             </Text>
             <Text style={[styles.recordMeta, item.synced ? styles.okText : styles.warnText]}>
               {item.synced ? "✓ Synced" : "⏳ Pending"}
@@ -412,6 +424,21 @@ function AbsensiScreen({ user, onLogout }: { user: EngineerUser; onLogout: () =>
         )) : (
           <Text style={styles.emptyText}>No attendance on this day</Text>
         )}
+      </View>
+
+      <View style={styles.actionRow}>
+        <Pressable style={[styles.primaryButton, styles.flexButton]} disabled={isSubmitting} onPress={() => submitAttendance("check-in")}>
+          <Text style={styles.primaryButtonText}>Check-in</Text>
+        </Pressable>
+        <Pressable style={[styles.secondaryButton, styles.flexButton]} disabled={isSubmitting} onPress={() => submitAttendance("check-out")}>
+          <Text style={styles.secondaryButtonText}>Check-out</Text>
+        </Pressable>
+      </View>
+
+      <View style={styles.actionRow}>
+        <Pressable style={[styles.secondaryButton, styles.flexButton]} disabled={isSyncing} onPress={() => { void runSync(); }}>
+          <Text style={styles.secondaryButtonText}>{isSyncing ? "Syncing..." : "Sync Now"}</Text>
+        </Pressable>
       </View>
 
       <View style={{ marginTop: 12, padding: 10, backgroundColor: '#fff', borderRadius: 12 }}>
@@ -695,6 +722,292 @@ function BeritaScreen() {
       <Pressable style={[styles.secondaryButton, { marginTop: 12 }]} onPress={() => { void loadNews(); }}>
         <Text style={styles.secondaryButtonText}>{isLoading ? "Loading..." : "Refresh News"}</Text>
       </Pressable>
+    </ScrollView>
+  );
+}
+
+type RequestItem = {
+  id: number;
+  employee_id: number;
+  employee_name?: string;
+  type: 'leave' | 'overtime' | 'late' | 'off';
+  status: string;
+  start_date?: string;
+  end_date?: string;
+  overtime_date?: string;
+  hours?: number;
+  note?: string;
+  manager_approved?: boolean;
+  hrd_approved?: boolean;
+  manager_remark?: string;
+  hrd_remark?: string;
+};
+
+function RequestsScreen({ user }: { user: EngineerUser }) {
+  const [requests, setRequests] = useState<RequestItem[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<'all' | 'leave' | 'overtime' | 'late' | 'off'>('all');
+
+  const loadRequests = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const [leaveRes, overtimeRes] = await Promise.all([
+        fetch(`/leave?requesterId=${user.id}&role=${user.role}`).then(r => r.json()),
+        fetch(`/overtime?requesterId=${user.id}&role=${user.role}`).then(r => r.json()),
+      ]);
+
+      const items: RequestItem[] = [
+        ...(leaveRes || []).map((r: any) => ({ ...r, type: 'leave' as const })),
+        ...(overtimeRes || []).map((r: any) => ({ ...r, type: 'overtime' as const })),
+      ];
+
+      setRequests(items);
+    } catch (error) {
+      console.log("Failed to load requests", error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    loadRequests();
+    const timer = setInterval(() => { void loadRequests(); }, 15 * 60 * 1000);
+    return () => clearInterval(timer);
+  }, [loadRequests]);
+
+  const filteredRequests = activeTab === 'all' ? requests :
+    requests.filter(r => r.type === activeTab);
+
+  const getStatusColor = (status: string) => {
+    if (status.includes('approved')) return '#34c759';
+    if (status.includes('rejected')) return '#ff3b30';
+    if (status.includes('pending')) return '#ffcc00';
+    return '#8e8e93';
+  };
+
+  const getStatusText = (item: RequestItem) => {
+    if (item.type === 'leave') {
+      if (item.status === 'approved') return '✓ Approved';
+      if (item.status === 'pending_hrd') return '⏳ Waiting HRD';
+      if (item.status === 'pending_manager') return '⏳ Waiting Manager';
+      if (item.status === 'rejected') return '✗ Rejected';
+    }
+    return item.status;
+  };
+
+  return (
+    <ScrollView style={styles.container} contentContainerStyle={styles.screenContainer}>
+      <Text style={styles.title}>Requests</Text>
+      <Text style={styles.subtitle}>Manage your requests</Text>
+
+      <View style={{ flexDirection: 'row', gap: 6, marginTop: 12, marginBottom: 12 }}>
+        {(['all', 'leave', 'overtime', 'late', 'off'] as const).map(tab => (
+          <Pressable
+            key={tab}
+            style={[
+              styles.secondaryButton,
+              { flex: 1, paddingVertical: 8 },
+              activeTab === tab && { backgroundColor: '#007AFF' }
+            ]}
+            onPress={() => setActiveTab(tab)}
+          >
+            <Text style={[styles.secondaryButtonText, activeTab === tab && { color: '#fff' }, { fontSize: 11 }]}>
+              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
+      <Pressable style={[styles.secondaryButton, { marginBottom: 12 }]} onPress={() => { void loadRequests(); }}>
+        <Text style={styles.secondaryButtonText}>{isLoading ? "Loading..." : "Refresh"}</Text>
+      </Pressable>
+
+      {isLoading ? <ActivityIndicator /> : (
+        filteredRequests.length > 0 ? (
+          filteredRequests.map((item, idx) => (
+            <View key={idx} style={styles.recordCard}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={styles.recordTitle}>
+                  {item.employee_name ?? 'Employee'} - {item.type.charAt(0).toUpperCase() + item.type.slice(1)}
+                </Text>
+                <View style={{ backgroundColor: getStatusColor(item.status), paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 }}>
+                  <Text style={{ color: '#fff', fontSize: 10, fontWeight: '600' }}>{getStatusText(item)}</Text>
+                </View>
+              </View>
+              {item.type === 'leave' && (
+                <>
+                  <Text style={styles.recordMeta}>Period: {item.start_date} s/d {item.end_date}</Text>
+                  {item.manager_remark && <Text style={styles.recordMeta}>Manager Remark: {item.manager_remark}</Text>}
+                  {item.hrd_remark && <Text style={styles.recordMeta}>HRD Remark: {item.hrd_remark}</Text>}
+                </>
+              )}
+              {item.type === 'overtime' && (
+                <Text style={styles.recordMeta}>{item.overtime_date} - {item.hours} hours</Text>
+              )}
+              {item.note && <Text style={styles.recordMeta}>Note: {item.note}</Text>}
+            </View>
+          ))
+        ) : (
+          <Text style={styles.emptyText}>No requests found</Text>
+        )
+      )}
+    </ScrollView>
+  );
+}
+
+function ApprovalsScreen({ user }: { user: EngineerUser }) {
+  const [pendingRequests, setPendingRequests] = useState<RequestItem[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [remark, setRemark] = useState('');
+  const [selectedRequest, setSelectedRequest] = useState<RequestItem | null>(null);
+
+  const loadPending = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const [leaveRes, overtimeRes] = await Promise.all([
+        fetch(`/leave?requesterId=${user.id}&role=${user.role}`).then(r => r.json()),
+        fetch(`/overtime?requesterId=${user.id}&role=${user.role}`).then(r => r.json()),
+      ]);
+
+      const items: RequestItem[] = [
+        ...(leaveRes || []).filter((r: any) =>
+          user.role === 'manager_line' ? r.status === 'pending_manager' :
+          user.role === 'hrd' ? r.status === 'pending_hrd' : false
+        ).map((r: any) => ({ ...r, type: 'leave' as const })),
+        ...(overtimeRes || []).filter((r: any) =>
+          user.role === 'manager_line' ? r.status === 'pending_manager' :
+          user.role === 'hrd' ? r.status === 'pending_hrd' : false
+        ).map((r: any) => ({ ...r, type: 'overtime' as const })),
+      ];
+
+      setPendingRequests(items);
+    } catch (error) {
+      console.log("Failed to load pending requests", error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    loadPending();
+    const timer = setInterval(() => { void loadPending(); }, 15 * 60 * 1000);
+    return () => clearInterval(timer);
+  }, [loadPending]);
+
+  const handleApproval = async (item: RequestItem, action: 'approve' | 'reject') => {
+    try {
+      const endpoint = item.type === 'leave' ?
+        (user.role === 'manager_line' ? '/leave/approve-manager' : '/leave/approve-hrd') :
+        (user.role === 'manager_line' ? '/overtime/approve-manager' : '/overtime/approve-hrd');
+
+      const url = `${endpoint}/${item.id}`;
+      const body = action === 'approve' ?
+        { approverId: user.id } :
+        { approverId: user.id, remark: remark || 'Rejected' };
+
+      const result = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+
+      if (result.ok) {
+        Alert.alert('Success', `Request ${action}d successfully`);
+        setSelectedRequest(null);
+        setRemark('');
+        await loadPending();
+      } else {
+        const error = await result.json();
+        Alert.alert('Error', error.error || `Failed to ${action} request`);
+      }
+    } catch (error) {
+      Alert.alert('Error', `Failed to ${action} request`);
+    }
+  };
+
+  return (
+    <ScrollView style={styles.container} contentContainerStyle={styles.screenContainer}>
+      <Text style={styles.title}>Approvals</Text>
+      <Text style={styles.subtitle}>
+        {user.role === 'manager_line' ? 'Pending Manager Approval' : 'Pending HRD Approval'}
+      </Text>
+
+      <Pressable style={[styles.secondaryButton, { marginBottom: 12 }]} onPress={() => { void loadPending(); }}>
+        <Text style={styles.secondaryButtonText}>{isLoading ? "Loading..." : "Refresh"}</Text>
+      </Pressable>
+
+      {isLoading ? <ActivityIndicator /> : (
+        pendingRequests.length > 0 ? (
+          pendingRequests.map((item, idx) => (
+            <View key={idx} style={styles.recordCard}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={styles.recordTitle}>
+                  {item.employee_name || 'Employee'} - {item.type.charAt(0).toUpperCase() + item.type.slice(1)}
+                </Text>
+                <View style={{
+                  backgroundColor: item.type === 'leave' ? '#ffcc00' : '#5856d6',
+                  paddingHorizontal: 8,
+                  paddingVertical: 4,
+                  borderRadius: 6
+                }}>
+                  <Text style={{ color: '#fff', fontSize: 10, fontWeight: '600' }}>
+                    {item.type === 'leave' ? 'Leave' : 'Overtime'}
+                  </Text>
+                </View>
+              </View>
+
+              {item.type === 'leave' && (
+                <Text style={styles.recordMeta}>Period: {item.start_date} s/d {item.end_date}</Text>
+              )}
+              {item.type === 'overtime' && (
+                <Text style={styles.recordMeta}>{item.overtime_date} - {item.hours} hours</Text>
+              )}
+              {item.note && <Text style={styles.recordMeta}>Note: {item.note}</Text>}
+
+              {selectedRequest?.id === item.id ? (
+                <View style={{ marginTop: 12 }}>
+                  <TextInput
+                    style={[styles.input, { marginBottom: 8 }]}
+                    placeholder="Add remark (optional)"
+                    value={remark}
+                    onChangeText={setRemark}
+                    multiline
+                  />
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <Pressable
+                      style={[styles.primaryButton, { flex: 1 }]}
+                      onPress={() => handleApproval(item, 'approve')}
+                    >
+                      <Text style={styles.primaryButtonText}>Approve</Text>
+                    </Pressable>
+                    <Pressable
+                      style={[styles.destructiveButton, { flex: 1 }]}
+                      onPress={() => handleApproval(item, 'reject')}
+                    >
+                      <Text style={styles.destructiveButtonText}>Reject</Text>
+                    </Pressable>
+                  </View>
+                  <Pressable
+                    style={{ marginTop: 8 }}
+                    onPress={() => { setSelectedRequest(null); setRemark(''); }}
+                  >
+                    <Text style={{ color: '#007AFF', fontSize: 12, textAlign: 'center' }}>Cancel</Text>
+                  </Pressable>
+                </View>
+              ) : (
+                <Pressable
+                  style={[styles.secondaryButton, { marginTop: 8 }]}
+                  onPress={() => setSelectedRequest(item)}
+                >
+                  <Text style={styles.secondaryButtonText}>Review & Action</Text>
+                </Pressable>
+              )}
+            </View>
+          ))
+        ) : (
+          <Text style={styles.emptyText}>No pending requests</Text>
+        )
+      )}
     </ScrollView>
   );
 }
@@ -998,9 +1311,10 @@ export default function App() {
           }}
         >
           <Tab.Screen name="Attendance" options={{ tabBarLabel: 'Attendance' }}>{() => <AbsensiScreen user={user} onLogout={handleLogout} />}</Tab.Screen>
+          <Tab.Screen name="Requests" options={{ tabBarLabel: 'Requests' }}>{() => <RequestsScreen user={user} />}</Tab.Screen>
           <Tab.Screen name="News" options={{ tabBarLabel: 'News' }}>{() => <BeritaScreen />}</Tab.Screen>
-          {(user.role === 'hrd' || user.role === 'admin') && (
-            <Tab.Screen name="Dashboard" options={{ tabBarLabel: 'Dashboard' }}>{() => <DashboardScreen user={user} />}</Tab.Screen>
+          {(user.role === 'hrd' || user.role === 'admin' || user.role === 'manager_line') && (
+            <Tab.Screen name="Approvals" options={{ tabBarLabel: 'Approvals' }}>{() => <ApprovalsScreen user={user} />}</Tab.Screen>
           )}
           <Tab.Screen name="Settings" options={{ tabBarLabel: 'Settings' }}>{() => <PengaturanScreen user={user} onLogout={handleLogout} />}</Tab.Screen>
         </Tab.Navigator>

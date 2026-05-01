@@ -100,7 +100,7 @@ app.post("/auth/login", async (req, res) => {
     }
 
     const result = await pool.query(
-      `SELECT id, name, email, role
+      `SELECT id, name, email, role, site_id, line_manager_id
        FROM employee
        WHERE email = $1 AND password_hash = md5($2)
        LIMIT 1`,
@@ -114,6 +114,7 @@ app.post("/auth/login", async (req, res) => {
 
     res.json(result.rows[0]);
   } catch (error) {
+    console.error("Login error:", error);
     const message =
       error instanceof Error ? error.message : "Failed to authenticate user";
     res.status(500).json({ error: message });
@@ -443,9 +444,90 @@ app.post("/overtime/request", async (req, res) => {
     const id = Number(requesterId || 0);
     const parsedHours = Number(hours || 0);
     if (!id || !overtimeDate || parsedHours <= 0) {
-      res.status(400).json({
-        error: "requesterId, overtimeDate, and hours (>0) are required.",
-      });
+      res.status(400).json({ error: "requesterId, overtimeDate, and hours (>0) are required." });
+      return;
+    }
+
+    const result = await pool.query(
+      `INSERT INTO overtime_request (
+        employee_id, overtime_date, hours, status, note
+      ) VALUES (
+        $1, $2, $3, 'pending_manager', $4
+      )
+      RETURNING *`,
+      [id, overtimeDate, parsedHours, note || null]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error("Overtime request error:", error);
+    const message = error instanceof Error ? error.message : "Failed to request overtime";
+    res.status(500).json({ error: message });
+  }
+});
+
+// Approve overtime by manager
+app.post("/overtime/approve-manager/:id", async (req, res) => {
+  try {
+    const otId = Number(req.params.id || 0);
+    const { approverId } = req.body;
+
+    if (!otId || !approverId) {
+      res.status(400).json({ error: "overtimeId and approverId are required." });
+      return;
+    }
+
+    const result = await pool.query(
+      `UPDATE overtime_request
+       SET status = 'pending_hrd', manager_approved_by = $1, manager_approved_at = NOW()
+       WHERE id = $2 AND status = 'pending_manager'
+       RETURNING *`,
+      [approverId, otId]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: "Overtime request not found or already processed." });
+      return;
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error("Manager approval error:", error);
+    const message = error instanceof Error ? error.message : "Failed to approve overtime";
+    res.status(500).json({ error: message });
+  }
+});
+
+// Approve overtime by HRD
+app.post("/overtime/approve-hrd/:id", async (req, res) => {
+  try {
+    const otId = Number(req.params.id || 0);
+    const { approverId } = req.body;
+
+    if (!otId || !approverId) {
+      res.status(400).json({ error: "overtimeId and approverId are required." });
+      return;
+    }
+
+    const result = await pool.query(
+      `UPDATE overtime_request
+       SET status = 'approved', hrd_approved_by = $1, hrd_approved_at = NOW()
+       WHERE id = $2 AND status = 'pending_hrd'
+       RETURNING *`,
+      [approverId, otId]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: "Overtime request not found or already processed." });
+      return;
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error("HRD approval error:", error);
+    const message = error instanceof Error ? error.message : "Failed to approve overtime";
+    res.status(500).json({ error: message });
+  }
+});
       return;
     }
 

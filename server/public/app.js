@@ -1,24 +1,21 @@
+// DOM Elements
 const topMeta = document.getElementById("topMeta");
 const pageTitle = document.getElementById("pageTitle");
 const loginCard = document.getElementById("loginCard");
 const dashboardCard = document.getElementById("dashboardCard");
 const requestsList = document.getElementById("requestsList");
 const approvalsList = document.getElementById("approvalsList");
-const kpiTotal = document.getElementById("kpiTotal");
-const kpiLate = document.getElementById("kpiLate");
-const kpiLeave = document.getElementById("kpiLeave");
-const kpiOvertime = document.getElementById("kpiOvertime");
 const calendarContainer = document.getElementById("calendarContainer");
 const selectedDayRecords = document.getElementById("selectedDayRecords");
 const gpsStatus = document.getElementById("gpsStatus");
 const userInfo = document.getElementById("userInfo");
 
+// State
 let selectedDate = new Date();
 let attendanceRecords = [];
-let requestItems = [];
-let approvalItems = [];
 let sessionUser = null;
 
+// Constants
 const PROJECT_SITES = [
   { id: "jkt-hq", name: "Jakarta HQ", latitude: -6.2001, longitude: 106.8167, radiusMeters: 150 },
   { id: "bdg-plant", name: "Bandung Plant", latitude: -6.9147, longitude: 107.6098, radiusMeters: 200 },
@@ -32,6 +29,7 @@ const HOLIDAYS_2026 = [
   '2026-10-01', '2026-12-25',
 ];
 
+// Helper Functions
 const isHoliday = (date) => {
   const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   return HOLIDAYS_2026.includes(dateStr);
@@ -51,32 +49,31 @@ const formatTimeJakarta = (iso) => {
   } catch { return iso; }
 };
 
-const api = async (url, options = {}) => {
-  const fullUrl = url.startsWith('/api') ? url.replace('/api', '/auth') : url;
-  const res = await fetch(fullUrl, options);
-  const type = res.headers.get("content-type") || "";
-  const body = type.includes("application/json") ? await res.json() : await res.text();
-  if (!res.ok) {
-    throw new Error(typeof body === "string" ? body : JSON.stringify(body));
-  }
-  return body;
+const formatDateJakarta = (date) => {
+  const jakarta = toJakartaTime(date);
+  return jakarta.toLocaleString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
 };
 
 const IS_ADMIN_ROLE = (role) => role === "hrd" || role === "admin";
 const IS_MANAGER_ROLE = (role) => role === "manager_line" || IS_ADMIN_ROLE(role);
 
-const haversineDistanceMeters = (lat1, lon1, lat2, lon2) => {
-  const R = 6371000;
-  const toRad = (deg) => (deg * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
+// API Helper
+const apiCall = async (url, options = {}) => {
+  try {
+    const res = await fetch(url, options);
+    const type = res.headers.get("content-type") || "";
+    const body = type.includes("application/json") ? await res.json() : await res.text();
+    if (!res.ok) {
+      throw new Error(typeof body === "string" ? body : JSON.stringify(body));
+    }
+    return body;
+  } catch (err) {
+    console.error('API Error:', err);
+    throw err;
+  }
 };
 
+// Calendar Functions
 const getDayStatus = (date) => {
   const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   if (isHoliday(date)) return 'holiday';
@@ -90,7 +87,6 @@ const getDayStatus = (date) => {
   });
 
   if (dayRecords.length === 0) return 'no-checkin';
-
   const hasCheckin = dayRecords.some(r => r.check_in);
   const hasCheckout = dayRecords.some(r => r.check_out);
   const isLate = dayRecords.some(r => r.status === 'late');
@@ -99,21 +95,6 @@ const getDayStatus = (date) => {
   if (isLate) return 'late';
   if (hasCheckin) return 'checked-in';
   return 'no-checkin';
-};
-
-const showTab = (tabName) => {
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
-
-  const activeTab = document.querySelector(`.tab[data-tab="${tabName}"]`);
-  const activePanel = document.getElementById(`panel-${tabName}`);
-
-  if (activeTab) activeTab.classList.add('active');
-  if (activePanel) activePanel.classList.remove('hidden');
-
-  if (tabName === 'calendar') renderCalendar();
-  if (tabName === 'requests') loadRequests();
-  if (tabName === 'approvals' && sessionUser && IS_MANAGER_ROLE(sessionUser.role)) loadApprovals();
 };
 
 const renderCalendar = () => {
@@ -197,12 +178,34 @@ window.selectDay = (year, month, day) => {
   selectedDayRecords.innerHTML = html;
 };
 
+// Tab Navigation
+const showTab = (tabName) => {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
+
+  const activeTab = document.querySelector(`.tab[data-tab="${tabName}"]`);
+  const activePanel = document.getElementById(`panel-${tabName}`);
+
+  if (activeTab) activeTab.classList.add('active');
+  if (activePanel) activePanel.classList.remove('hidden');
+
+  if (tabName === 'calendar') renderCalendar();
+  if (tabName === 'requests') loadRequests();
+  if (tabName === 'approvals' && sessionUser && IS_MANAGER_ROLE(sessionUser.role)) loadApprovals();
+};
+
+// Login
 const login = async () => {
   const email = document.getElementById('email')?.value;
   const password = document.getElementById('password')?.value;
 
+  if (!email || !password) {
+    alert('Please enter email and password');
+    return;
+  }
+
   try {
-    const user = await api('/auth/login', {
+    const user = await apiCall('/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password })
@@ -225,12 +228,27 @@ const login = async () => {
   }
 };
 
+// Logout
+const logout = () => {
+  sessionUser = null;
+  localStorage.removeItem('absensi_user');
+  if (loginCard) loginCard.classList.remove('hidden');
+  if (dashboardCard) dashboardCard.classList.add('hidden');
+  if (pageTitle) pageTitle.textContent = 'Absensi';
+  if (topMeta) topMeta.textContent = 'Sign in untuk lihat absensi';
+};
+
+// Load Attendance
 const loadAttendance = async () => {
   if (!sessionUser) return;
   try {
-    attendanceRecords = await api(`/attendance?user_id=${sessionUser.id}`);
+    attendanceRecords = await apiCall(`/attendance?user_id=${sessionUser.id}`);
     if (IS_ADMIN_ROLE(sessionUser.role)) {
-      const stats = await api('/dashboard');
+      const stats = await apiCall('/dashboard');
+      const kpiTotal = document.getElementById('kpiTotal');
+      const kpiLate = document.getElementById('kpiLate');
+      const kpiLeave = document.getElementById('kpiLeave');
+      const kpiOvertime = document.getElementById('kpiOvertime');
       if (kpiTotal) kpiTotal.textContent = stats.total || 0;
       if (kpiLate) kpiLate.textContent = stats.late || 0;
       if (kpiLeave) kpiLeave.textContent = stats.leave || 0;
@@ -241,10 +259,11 @@ const loadAttendance = async () => {
   }
 };
 
+// Load Requests
 const loadRequests = async () => {
   if (!sessionUser || !requestsList) return;
   try {
-    requestItems = await api(`/leave?user_id=${sessionUser.id}`);
+    const requestItems = await apiCall(`/leave?user_id=${sessionUser.id}`);
     let html = '';
     requestItems.forEach(r => {
       html += `
@@ -252,9 +271,6 @@ const loadRequests = async () => {
           <div class="item-title">${r.type} - ${r.status}</div>
           <div class="item-meta">${formatTimeJakarta(r.created_at)}</div>
           <div class="item-meta">${r.remarks || ''}</div>
-          <div class="status ${r.approval_status === 'approved' ? 'ok' : r.approval_status === 'rejected' ? 'bad' : 'warn'}">
-            ${r.approval_status || 'pending'}
-          </div>
         </div>
       `;
     });
@@ -264,10 +280,11 @@ const loadRequests = async () => {
   }
 };
 
+// Load Approvals
 const loadApprovals = async () => {
   if (!sessionUser || !approvalsList) return;
   try {
-    approvalItems = await api('/leave/requests');
+    const approvalItems = await apiCall('/leave/requests');
     let html = '';
     approvalItems.forEach(a => {
       html += `
@@ -275,13 +292,6 @@ const loadApprovals = async () => {
           <div class="item-title">${a.user_name} - ${a.type}</div>
           <div class="item-meta">${formatTimeJakarta(a.created_at)}</div>
           <div class="item-meta">Status: ${a.approval_status}</div>
-          ${a.approval_remarks ? `<div class="item-meta">Remarks: ${a.approval_remarks}</div>` : ''}
-          ${a.approval_status === 'pending_manager' || a.approval_status === 'pending_hrd' ? `
-            <div class="row" style="margin-top:8px;">
-              <button class="btn btn-primary flex-1" onclick="approveRequest(${a.id}, 'approve')">Approve</button>
-              <button class="btn btn-destructive flex-1" onclick="approveRequest(${a.id}, 'reject')">Reject</button>
-            </div>
-          ` : ''}
         </div>
       `;
     });
@@ -291,94 +301,55 @@ const loadApprovals = async () => {
   }
 };
 
-window.approveRequest = async (id, action) => {
-  const remarks = prompt('Remarks (optional):');
-  try {
-    await api(`/leave/approve/${id}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, remarks, role: sessionUser.role })
-    });
-    alert('Approval updated');
-    loadApprovals();
-  } catch (err) {
-    alert('Failed: ' + err.message);
-  }
-};
-
-const logout = () => {
-  sessionUser = null;
-  localStorage.removeItem('absensi_user');
-  if (loginCard) loginCard.classList.remove('hidden');
-  if (dashboardCard) dashboardCard.classList.add('hidden');
-  if (pageTitle) pageTitle.textContent = 'Absensi';
-  if (topMeta) topMeta.textContent = 'Sign in untuk lihat absensi';
-};
-
+// Check-in/out
 const checkIn = async () => {
-  if (!sessionUser) return alert('Please login first');
-
+  if (!sessionUser) { alert('Please login first'); return; }
   if (navigator.geolocation) {
     navigator.geolocation.getCurrentPosition(async (position) => {
       try {
         const { latitude, longitude } = position.coords;
-        const result = await api('/attendance/check-in', {
+        await apiCall('/attendance/check-in', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            user_id: sessionUser.id,
-            latitude,
-            longitude,
-            locationType: 'gps-web'
-          })
+          body: JSON.stringify({ user_id: sessionUser.id, latitude, longitude, locationType: 'gps-web' })
         });
         alert('Check-in successful');
         loadAttendance();
       } catch (err) {
         alert('Check-in failed: ' + err.message);
       }
-    }, (err) => {
-      alert('GPS error: ' + err.message);
-    }, { timeout: 30000 });
+    }, (err) => alert('GPS error: ' + err.message), { timeout: 30000 });
   } else {
     alert('Geolocation not supported');
   }
 };
 
 const checkOut = async () => {
-  if (!sessionUser) return alert('Please login first');
-
+  if (!sessionUser) { alert('Please login first'); return; }
   if (navigator.geolocation) {
     navigator.geolocation.getCurrentPosition(async (position) => {
       try {
         const { latitude, longitude } = position.coords;
-        const result = await api('/attendance/check-out', {
+        await apiCall('/attendance/check-out', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            user_id: sessionUser.id,
-            latitude,
-            longitude,
-            locationType: 'gps-web'
-          })
+          body: JSON.stringify({ user_id: sessionUser.id, latitude, longitude, locationType: 'gps-web' })
         });
         alert('Check-out successful');
         loadAttendance();
       } catch (err) {
         alert('Check-out failed: ' + err.message);
       }
-    }, (err) => {
-      alert('GPS error: ' + err.message);
-    }, { timeout: 30000 });
+    }, (err) => alert('GPS error: ' + err.message), { timeout: 30000 });
   } else {
     alert('Geolocation not supported');
   }
 };
 
 const syncNow = async () => {
-  if (!sessionUser) return alert('Please login first');
+  if (!sessionUser) { alert('Please login first'); return; }
   try {
-    const result = await api('/sync/attendance', {
+    await apiCall('/sync/attendance', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ user_id: sessionUser.id })
@@ -389,16 +360,21 @@ const syncNow = async () => {
   }
 };
 
+// Initialize
 document.addEventListener('DOMContentLoaded', () => {
   const savedUser = localStorage.getItem('absensi_user');
   if (savedUser) {
-    sessionUser = JSON.parse(savedUser);
-    if (loginCard) loginCard.classList.add('hidden');
-    if (dashboardCard && IS_ADMIN_ROLE(sessionUser.role)) dashboardCard.classList.remove('hidden');
-    if (pageTitle) pageTitle.textContent = `Hello, ${sessionUser.name}`;
-    if (topMeta) topMeta.textContent = `Role: ${sessionUser.role}`;
-    if (userInfo) userInfo.textContent = `Logged in as: ${sessionUser.name} (${sessionUser.role})`;
-    loadAttendance();
+    try {
+      sessionUser = JSON.parse(savedUser);
+      if (loginCard) loginCard.classList.add('hidden');
+      if (dashboardCard && IS_ADMIN_ROLE(sessionUser.role)) dashboardCard.classList.remove('hidden');
+      if (pageTitle) pageTitle.textContent = `Hello, ${sessionUser.name}`;
+      if (topMeta) topMeta.textContent = `Role: ${sessionUser.role}`;
+      if (userInfo) userInfo.textContent = `Logged in as: ${sessionUser.name} (${sessionUser.role})`;
+      loadAttendance();
+    } catch (e) {
+      localStorage.removeItem('absensi_user');
+    }
   }
 
   document.getElementById('btnLogin')?.addEventListener('click', login);

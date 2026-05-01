@@ -1,0 +1,29 @@
+<!doctype html>
+<html>
+<head><title>Test Login</title></head>
+<body>
+  <input id="email" value="user@apsensi.local" />
+  <input id="password" type="password" value="Password09" />
+  <button onclick="testLogin()">Test Login</button>
+  <div id="result"></div>
+  <script>
+    async function testLogin() {
+      const result = document.getElementById('result');
+      try {
+        const res = await fetch('http://localhost:4000/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: document.getElementById('email').value,
+            password: document.getElementById('password').value
+          })
+        });
+        const data = await res.json();
+        result.textContent = JSON.stringify(data, null, 2);
+      } catch (e) {
+        result.textContent = 'Error: ' + e.message;
+      }
+    }
+  </script>
+</body>
+</html>

@@ -231,11 +231,60 @@ Aplikasi memiliki fitur **Server Connection Settings** untuk mengatur koneksi ke
 
 ## 🔄 Alur Sinkronisasi
 
+### Basic Flow
 1. **Check-in/Check-out** → Disimpan di SQLite lokal
 2. **Auto-sync timer** → Setiap 15 menit, aplikasi mencoba sync ke server
 3. **Manual sync** → User dapat menekan tombol "Sync Sekarang"
 4. **Sync process** → Data dari SQLite dikirim ke PostgreSQL via API
 5. **Mark as synced** → Setelah berhasil, data di SQLite diupdate `synced=1`
+
+### Offline & Online Sync Flow (Detailed)
+
+#### 1. App Start / Init
+- Buat database lokal SQLite di perangkat
+- Simpan semua config (user, role, absensi, setting)
+- Gunakan kredensial default:
+  - User: neondb_owner
+  - Password: Password09
+
+#### 2. Default Mode (Offline-first)
+- Semua query dibaca dari SQLite
+- Jika tidak ada koneksi:
+  - Data user, config, absensi, dan temp data tetap disimpan di SQLite
+  - Postgres tidak diakses langsung
+- SQLite berfungsi sebagai cache + storage sementara
+
+#### 3. Sync Job (Online Mode)
+- Saat koneksi tersedia:
+  - Jalankan sync service → kirim data baru dari SQLite ke Postgres
+  - Postgres tetap menjadi master database
+  - Koneksi utama:
+    - Host: localhost
+    - Port: 5432
+    - DB: apsensi_db
+    - User: postgres
+    - Password: Password09
+
+#### 4. Postgres → Neon Backup
+- Postgres akan melakukan replication/backup ke Neon:
+  - Host: ep-blue-morning-am69itpc.c-5.us-east-1.aws.neon.tech
+  - DB: apsensi_db
+  - User: neondb_owner
+  - Password: npg_sfjvrTWXZw06
+  - Port: 5432
+
+#### 5. Sync Flow Detail
+1. Ambil data dari SQLite dengan flag synced=0
+2. Push ke Postgres via API
+3. Jika sukses → update flag synced=1 di SQLite
+4. Buat log absensi hanya untuk user yang sign in
+5. Sinkronisasi dilakukan periodik (misalnya setiap 1 menit dengan cron job / background worker)
+
+**Catatan Teknis:**
+- SQLite hanya cache → jangan dipakai untuk audit final
+- Postgres master → semua validasi & compliance tetap di sini
+- Neon backup → redundancy & disaster recovery
+- API layer → wajib ada untuk komunikasi aman (jangan direct DB connect dari mobile)
 
 ## 📰 News Feature
 
@@ -259,6 +308,51 @@ Body: {
   "author_id": 3
 }
 ```
+
+## 📅 Calendar Feature (React Native)
+
+### 🕒 Timezone
+- Semua tanggal dan waktu menggunakan **UTC+7 (WIB)**
+- Sinkronisasi otomatis dengan perangkat pengguna
+
+### 📌 Format Tampilan
+- **Hari** ditampilkan di baris atas (Senin, Selasa, dst)
+- **Tanggal** ditampilkan di baris bawah sesuai kalender nasional Indonesia
+- **Hari Libur Nasional** ditampilkan dengan **teks merah**
+
+Contoh:
+```
+Senin   Selasa   Rabu   Kamis   Jumat   Sabtu   Minggu
+1       2        3      4       5       6       7
+```
+
+### 🎨 Legend Status Absensi
+- **Check-in** → 🟢 Hijau
+- **Check-out** → 🔵 Biru
+- **Late** → 🟡 Kuning
+- **No Check-in** → 🟠 Oranye
+- **No Check-out** → 🟣 Ungu
+- **Holiday (Libur Nasional)** → 🔴 Teks Merah
+
+### 📂 Struktur Data
+```json
+{
+  "date": "2026-05-02",
+  "day": "Sabtu",
+  "holiday": true,
+  "attendance": {
+    "check_in": "08:15",
+    "check_out": "17:00",
+    "status": "Late"
+  },
+  "color": "#FFD700"
+}
+```
+
+### 🔄 Integrasi
+- Backend API mengembalikan data absensi per tanggal
+- Frontend React Native menampilkan kalender dengan warna sesuai legend
+- Hari libur nasional diambil dari API Kemenaker atau file JSON lokal
 
 ## 🌐 API Endpoints
 

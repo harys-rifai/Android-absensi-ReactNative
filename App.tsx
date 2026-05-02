@@ -366,10 +366,12 @@ function AbsensiScreen({
       });
 
       if (mode === "check-in") {
-        if (todayRecords.length > 0) {
+        // Only block if there's an UNCHECKED-OUT record for today
+        const hasOpenCheckin = todayRecords.some((r) => !r.check_out);
+        if (hasOpenCheckin) {
           Alert.alert(
             "Already Checked In",
-            "You have already checked in today.",
+            "You have already checked in today. Please check-out first.",
           );
           setIsSubmitting(false);
           return;

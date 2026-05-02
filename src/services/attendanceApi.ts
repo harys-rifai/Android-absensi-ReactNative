@@ -64,8 +64,8 @@ export const loginUser = async (
 
     const user = (await response.json()) as EngineerUser;
 
-    // Save to local storage for offline access
-    await cacheSignedInUser(user);
+    // Don't save to cache here - let the caller decide
+    // This prevents overwriting local changes with old server data
 
     return user;
   } catch (error) {

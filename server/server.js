@@ -100,7 +100,7 @@ app.post("/auth/login", async (req, res) => {
     }
 
     const result = await pool.query(
-      `SELECT id, name, email, role, site_id, line_manager_id
+      `SELECT id, name, email, role, site_id, line_manager_id, foto, flag, active, phone, jabatan, remark, datejoin, dateleft
        FROM employee
        WHERE email = $1 AND password_hash = md5($2)
        LIMIT 1`,

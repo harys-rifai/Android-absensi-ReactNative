@@ -1535,9 +1535,11 @@ function DashboardScreen({ user }: { user: EngineerUser }) {
 function PengaturanScreen({
   user,
   onLogout,
+  onProfileUpdate,
 }: {
   user: EngineerUser;
   onLogout: () => void;
+  onProfileUpdate: (updatedUser: EngineerUser) => void;
 }) {
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [serverUrlInput, setServerUrlInput] = useState("");
@@ -1605,9 +1607,8 @@ function PengaturanScreen({
         console.log("Server update failed, will sync later");
       }
 
-      user.name = editName.trim();
-      user.phone = editPhone.trim();
-      user.foto = editFoto;
+      // Update parent state with new user data
+      onProfileUpdate(updatedUser);
 
       setEditMode(false);
       Alert.alert("Success", "Profile updated successfully");
@@ -1820,8 +1821,21 @@ export default function App() {
     try {
       // Try server first
       const signedUser = await loginUser({ email, password });
-      setUser(signedUser);
-      await cacheSignedInUser(signedUser);
+
+      // Load local user to check for local changes
+      const localUser = await getLocalUser(email);
+
+      // Merge: prefer local changes (name, phone, foto) if they exist
+      const mergedUser = localUser ? {
+        ...signedUser,
+        // Keep local changes if they differ from server (likely edited locally)
+        name: localUser.name !== signedUser.name ? localUser.name : signedUser.name,
+        phone: localUser.phone || signedUser.phone,
+        foto: localUser.foto || signedUser.foto,
+      } : signedUser;
+
+      setUser(mergedUser);
+      await cacheSignedInUser(mergedUser);
     } catch (error) {
       // If server fails, try local login
       try {
@@ -1855,8 +1869,9 @@ export default function App() {
     setUser(null);
     setEmailInput("");
     setPasswordInput("");
-    // Clear cached user from SQLite (native) or localStorage (web)
-    await cacheSignedInUser(null as any);
+    // Note: We don't clear cached user data on logout
+    // This preserves local changes (profile edits) for next login
+    // The cache will be overwritten on next successful login
   };
 
   useEffect(() => {
@@ -2066,7 +2081,7 @@ export default function App() {
             </Tab.Screen>
           )}
           <Tab.Screen name="Settings" options={{ tabBarLabel: "Settings", tabBarLabelStyle: { fontSize: 10 } }}>
-            {() => <PengaturanScreen user={user} onLogout={handleLogout} />}
+            {() => <PengaturanScreen user={user} onLogout={handleLogout} onProfileUpdate={(updatedUser) => setUser(updatedUser)} />}
           </Tab.Screen>
         </Tab.Navigator>
       </NavigationContainer>

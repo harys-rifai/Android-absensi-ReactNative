@@ -864,7 +864,7 @@ app.post("/config", async (req, res) => {
 
 app.post("/api/update-profile", async (req, res) => {
   try {
-    const { email, name, phone, foto } = req.body;
+    const { email, name, phone, foto, jabatan, flag, active, remark, datejoin, dateleft } = req.body;
 
     if (!email) {
       return res.status(400).json({ error: "Email is required" });
@@ -886,19 +886,42 @@ app.post("/api/update-profile", async (req, res) => {
       updates.push(`foto = $${paramCount++}`);
       values.push(foto);
     }
+    if (jabatan !== undefined) {
+      updates.push(`jabatan = $${paramCount++}`);
+      values.push(jabatan);
+    }
+    if (flag !== undefined) {
+      updates.push(`flag = $${paramCount++}`);
+      values.push(flag);
+    }
+    if (active !== undefined) {
+      updates.push(`active = $${paramCount++}`);
+      values.push(active);
+    }
+    if (remark !== undefined) {
+      updates.push(`remark = $${paramCount++}`);
+      values.push(remark);
+    }
+    if (datejoin !== undefined) {
+      updates.push(`datejoin = $${paramCount++}`);
+      values.push(datejoin);
+    }
+    if (dateleft !== undefined) {
+      updates.push(`dateleft = $${paramCount++}`);
+      values.push(dateleft);
+    }
 
     if (updates.length === 0) {
       return res.status(400).json({ error: "No fields to update" });
     }
 
-    updates.push(`updated_at = NOW()`);
     values.push(email);
 
     const query = `
       UPDATE employee
       SET ${updates.join(", ")}
       WHERE email = $${paramCount}
-      RETURNING id, email, name, jabatan, phone, foto, role
+      RETURNING id, email, name, role, site_id, foto, flag, active, phone, jabatan, remark, datejoin, dateleft
     `;
 
     const result = await pool.query(query, values);

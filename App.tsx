@@ -1589,11 +1589,13 @@ function PengaturanScreen({
         foto: editFoto,
       };
 
+      // Save to local storage first (offline-first)
       await cacheSignedInUser(updatedUser);
 
+      // Try to save to server (PostgreSQL)
       try {
         const apiUrl = getApiBaseUrl();
-        await fetch(`${apiUrl}/api/update-profile`, {
+        const response = await fetch(`${apiUrl}/api/update-profile`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1603,8 +1605,24 @@ function PengaturanScreen({
             foto: editFoto,
           }),
         });
+
+        if (response.ok) {
+          const data = await response.json();
+          console.log("✓ Profile saved to PostgreSQL:", data.message);
+          // Update with server response (ensures data is in PostgreSQL)
+          if (data.user) {
+            updatedUser.name = data.user.name || updatedUser.name;
+            updatedUser.phone = data.user.phone || updatedUser.phone;
+            updatedUser.foto = data.user.foto || updatedUser.foto;
+          }
+        } else {
+          const error = await response.json();
+          console.error("Server update failed:", error.error);
+          Alert.alert("Warning", "Saved locally. Will sync to server when online.");
+        }
       } catch (error) {
-        console.log("Server update failed, will sync later");
+        console.log("Server unreachable, saved locally");
+        Alert.alert("Offline Mode", "Profile saved locally. Will sync when online.");
       }
 
       // Update parent state with new user data

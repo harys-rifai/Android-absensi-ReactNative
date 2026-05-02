@@ -181,17 +181,23 @@ function AbsensiScreen({
     pendingLeave: 0,
   });
 
-  const selectedSite: Site = userSite || PROJECT_SITES[0];
+  const selectedSite: Site = userSite || (PROJECT_SITES && PROJECT_SITES[0]) || { id: 1, name_site: "Jakarta HQ", latitude: -6.2001, longitude: 106.8167, radiusMeters: 150, active: true, flag: 'active', remark: '' };
 
   useEffect(() => {
     const loadSites = async () => {
+      console.log('Loading sites... user.site_id:', user.site_id);
       const sites = await getProjectSites();
+      console.log('Sites loaded:', sites.length, sites);
       const site = sites.find((s) => s.id === Number(user.site_id));
+      console.log('Found site:', site);
       if (site) setUserSite(site);
     };
 
     if (user.site_id) {
       void loadSites();
+    } else {
+      console.log('No site_id, using fallback site');
+      setUserSite(PROJECT_SITES[0]);
     }
   }, [user.site_id]);
 
@@ -348,7 +354,7 @@ function AbsensiScreen({
       }
 
       const distance =
-        latitude && longitude
+        latitude && longitude && selectedSite
           ? haversineDistanceMeters(
               latitude,
               longitude,
@@ -356,8 +362,9 @@ function AbsensiScreen({
               selectedSite.longitude,
             )
           : Infinity;
+      console.log('Distance to site:', distance, 'Selected site:', selectedSite?.name_site);
       const locationType =
-        distance <= selectedSite.radiusMeters ? "onsite" : "offsite";
+        distance <= (selectedSite?.radiusMeters || 150) ? "onsite" : "offsite";
 
       // Get today's date in Jakarta timezone
       const now = new Date();

@@ -186,9 +186,10 @@ function AbsensiScreen({
   useEffect(() => {
     const loadSites = async () => {
       const sites = await getProjectSites();
-      const site = sites.find((s) => s.id === user.site_id);
+      const site = sites.find((s) => s.id === Number(user.site_id));
       if (site) setUserSite(site);
     };
+
     if (user.site_id) {
       void loadSites();
     }

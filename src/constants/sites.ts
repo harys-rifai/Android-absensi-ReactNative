@@ -3,7 +3,7 @@ import { Site } from "../types/attendance";
 // Fallback sites (used if database is unreachable)
 const FALLBACK_SITES: Site[] = [
   {
-    id: 'jkt-hq',
+    id: 1,
     name_site: "Jakarta HQ",
     latitude: -6.2001,
     longitude: 106.8167,
@@ -13,7 +13,7 @@ const FALLBACK_SITES: Site[] = [
     remark: 'Headquarters Jakarta'
   },
   {
-    id: 'bdg-plant',
+    id: 2,
     name_site: "Bandung Plant",
     latitude: -6.9147,
     longitude: 107.6098,
@@ -23,7 +23,7 @@ const FALLBACK_SITES: Site[] = [
     remark: 'Distribution Center 1 Bandung'
   },
   {
-    id: 'sby-field',
+    id: 3,
     name_site: "Surabaya Field Office",
     latitude: -7.2575,
     longitude: 112.7521,

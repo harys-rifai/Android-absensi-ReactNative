@@ -18,7 +18,7 @@ export type EngineerUser = {
 };
 
 export type Site = {
-  id: string;
+  id: number;
   name_site: string;
   latitude: number;
   longitude: number;

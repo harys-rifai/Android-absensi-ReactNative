@@ -938,6 +938,22 @@ app.post("/api/update-profile", async (req, res) => {
   }
 });
 
+app.get("/sites", async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, name_site, latitude, longitude, radius_meters, active, flag, remark 
+       FROM site 
+       WHERE active = true 
+       ORDER BY id`
+    );
+    res.json(result.rows);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to fetch sites";
+    res.status(500).json({ error: message });
+  }
+});
+
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Attendance API running on http://0.0.0.0:${PORT}`);
   console.log(`For Android USB debugging, run: adb reverse tcp:${PORT} tcp:${PORT}`);

@@ -19,10 +19,13 @@ export type EngineerUser = {
 
 export type Site = {
   id: string;
-  name: string;
+  name_site: string;
   latitude: number;
   longitude: number;
   radiusMeters: number;
+  active?: boolean;
+  flag?: string;
+  remark?: string;
 };
 
 export type AttendanceRecord = {

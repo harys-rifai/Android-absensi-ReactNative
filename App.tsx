@@ -34,7 +34,7 @@ import {
 
 import { AttendanceRecord, EngineerUser, Site } from "./src/types/attendance";
 import { haversineDistanceMeters } from "./src/utils/geofence";
-import { PROJECT_SITES } from "./src/constants/sites";
+import { PROJECT_SITES, getProjectSites } from "./src/constants/sites";
 import {
   cacheSignedInUser,
   getCachedUser,
@@ -181,12 +181,16 @@ function AbsensiScreen({
     pendingLeave: 0,
   });
 
-  const selectedSite: Site = userSite ?? PROJECT_SITES[0];
+  const selectedSite: Site = userSite || PROJECT_SITES[0];
 
   useEffect(() => {
-    if (user.site_id) {
-      const site = PROJECT_SITES.find((s) => s.id === user.site_id);
+    const loadSites = async () => {
+      const sites = await getProjectSites();
+      const site = sites.find((s) => s.id === user.site_id);
       if (site) setUserSite(site);
+    };
+    if (user.site_id) {
+      void loadSites();
     }
   }, [user.site_id]);
 

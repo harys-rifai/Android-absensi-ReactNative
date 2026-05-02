@@ -2106,9 +2106,9 @@ export default function App() {
             headerShown: false,
             tabBarStyle: {
               position: "absolute",
-              bottom: Platform.OS === "ios" ? 20 : 10,
-              left: Platform.OS === "web" ? 10 : 20,
-              right: Platform.OS === "web" ? 10 : 20,
+              bottom: Platform.OS === "web" ? 20 : (Platform.OS === "ios" ? 20 : 10),
+              left: Platform.OS === "web" ? 20 : 20,
+              right: Platform.OS === "web" ? 20 : 20,
               backgroundColor: "rgba(255, 255, 255, 0.75)",
               borderTopWidth: 0,
               height: Platform.OS === "web" ? 56 : 48,
@@ -2118,7 +2118,7 @@ export default function App() {
               shadowOffset: { width: 0, height: 4 },
               shadowOpacity: 0.1,
               shadowRadius: 8,
-              paddingBottom: Platform.OS === "web" ? 8 : 0,
+              paddingBottom: 0,
             },
             tabBarLabelStyle: {
               fontSize: Platform.OS === "web" ? 9 : 10,
@@ -2179,9 +2179,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   screenContainer: {
-    paddingTop: Platform.OS === "ios" ? 60 : 50,
+    paddingTop: Platform.OS === "web" ? 80 : (Platform.OS === "ios" ? 60 : 50),
     paddingHorizontal: 16,
-    paddingBottom: Platform.OS === "web" ? 40 : 60,
+    paddingBottom: Platform.OS === "web" ? 80 : 60,
   },
   topNav: {
     position: "absolute",
@@ -2207,7 +2207,7 @@ const styles = StyleSheet.create({
   loginContainer: {
     flex: 1,
     justifyContent: Platform.OS === "web" ? "flex-start" : "center",
-    paddingTop: Platform.OS === "web" ? 60 : 0,
+    paddingTop: Platform.OS === "web" ? 80 : 0,
     padding: 24,
     paddingTop: Platform.OS === "android" ? 40 : 20,
     gap: 16,

@@ -1685,6 +1685,25 @@ function PengaturanScreen({
     }
   };
 
+  const testServerConnection = async () => {
+    if (!serverUrlInput.trim()) {
+      Alert.alert("Error", "Server URL cannot be empty");
+      return;
+    }
+    try {
+      const testUrl = serverUrlInput.trim();
+      console.log('Testing connection to:', testUrl);
+      const response = await fetch(`${testUrl}/health`);
+      if (response.ok) {
+        Alert.alert("Success", `Connected to server at ${testUrl}`);
+      } else {
+        Alert.alert("Warning", `Server responded with status: ${response.status}`);
+      }
+    } catch (error) {
+      Alert.alert("Connection Failed", `Cannot connect to ${serverUrlInput.trim()}\n\nCheck if server is running.`);
+    }
+  };
+
   return (
     <ScrollView
       style={styles.container}
@@ -1806,6 +1825,12 @@ function PengaturanScreen({
               autoCapitalize="none"
               keyboardType="url"
             />
+            <Pressable
+              style={[styles.secondaryButton, { marginTop: 8 }]}
+              onPress={testServerConnection}
+            >
+              <Text style={styles.secondaryButtonText}>Test Connection</Text>
+            </Pressable>
             <Text style={styles.modalHint}>
               • Android Emulator: http://10.0.2.2:4000{"\n"}• USB Debugging:
               http://192.168.1.21:4000{"\n"}• Web: http://localhost:4000
@@ -1836,6 +1861,12 @@ function PengaturanScreen({
                 onPress={() => setSettingsVisible(false)}
               >
                 <Text style={styles.secondaryButtonText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.secondaryButton, styles.flexButton]}
+                onPress={testServerConnection}
+              >
+                <Text style={styles.secondaryButtonText}>Test</Text>
               </Pressable>
               <Pressable
                 style={[styles.primaryButton, styles.flexButton]}

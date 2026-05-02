@@ -19,7 +19,14 @@ CREATE TABLE IF NOT EXISTS employee (
   role VARCHAR(20) NOT NULL CHECK (role IN ('user','manager_line','hrd','admin')),
   password_hash TEXT NOT NULL,
   site_id VARCHAR(50) REFERENCES project_sites(id),
-  line_manager_id INT REFERENCES employee(id)
+  foto TEXT,
+  flag VARCHAR(20) DEFAULT 'active',
+  active BOOLEAN DEFAULT TRUE,
+  phone VARCHAR(20),
+  jabatan VARCHAR(100),
+  remark TEXT,
+  datejoin DATE,
+  dateleft DATE
 );
 
 CREATE TABLE IF NOT EXISTS attendance (

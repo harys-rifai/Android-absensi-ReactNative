@@ -7,6 +7,14 @@ export type EngineerUser = {
   role: UserRole;
   site_id?: string;
   line_manager_id?: number;
+  foto?: string;
+  flag?: string;
+  active?: boolean;
+  phone?: string;
+  jabatan?: string;
+  remark?: string;
+  datejoin?: string;
+  dateleft?: string;
 };
 
 export type Site = {

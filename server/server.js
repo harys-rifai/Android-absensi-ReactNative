@@ -421,7 +421,7 @@ app.post("/leave/approve-hrd/:id", async (req, res) => {
     const result = await pool.query(
       `UPDATE leave_request
        SET status = 'approved', hrd_approved_by = $1, hrd_approved_at = NOW()
-       WHERE id = $2 AND status = 'pending_hrd'
+       WHERE id = $2 AND (status = 'pending_hrd' OR status = 'pending_manager')
        RETURNING *`,
       [approverId, leaveId]
     );
@@ -613,6 +613,14 @@ app.get("/dashboard", async (req, res) => {
       statParams
     );
 
+    // Get leave count
+    const leaveCountWhere = role === "user" ? "WHERE employee_id = $1" : "";
+    const leaveCountParams = role === "user" ? [requesterId] : [];
+    const leaveCount = await pool.query(
+      `SELECT COUNT(*)::int AS leave_count FROM leave_request ${leaveCountWhere}`,
+      leaveCountParams
+    );
+
     const overtimeScope = roleScope(role, "employee_id", requesterId);
     const overtime = await pool.query(
       `SELECT COUNT(*)::int AS overtime_count
@@ -640,7 +648,7 @@ app.get("/dashboard", async (req, res) => {
         totalAttendance: stats.rows[0]?.total_attendance ?? 0,
         activeShift: stats.rows[0]?.active_shift ?? 0,
         lateCount: stats.rows[0]?.late_count ?? 0,
-        leaveCount: leaveRows.rows.length,
+        leaveCount: leaveCount.rows[0]?.leave_count ?? 0,
         overtimeCount: overtime.rows[0]?.overtime_count ?? 0,
       },
       attendance: attendance.rows,
@@ -850,6 +858,59 @@ app.post("/config", async (req, res) => {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to save config";
+    res.status(500).json({ error: message });
+  }
+});
+
+app.post("/api/update-profile", async (req, res) => {
+  try {
+    const { email, name, phone, foto } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ error: "Email is required" });
+    }
+
+    const updates = [];
+    const values = [];
+    let paramCount = 1;
+
+    if (name !== undefined) {
+      updates.push(`name = $${paramCount++}`);
+      values.push(name);
+    }
+    if (phone !== undefined) {
+      updates.push(`phone = $${paramCount++}`);
+      values.push(phone);
+    }
+    if (foto !== undefined) {
+      updates.push(`foto = $${paramCount++}`);
+      values.push(foto);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: "No fields to update" });
+    }
+
+    updates.push(`updated_at = NOW()`);
+    values.push(email);
+
+    const query = `
+      UPDATE employee
+      SET ${updates.join(", ")}
+      WHERE email = $${paramCount}
+      RETURNING id, email, name, jabatan, phone, foto, role
+    `;
+
+    const result = await pool.query(query, values);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    res.json({ message: "Profile updated successfully", user: result.rows[0] });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to update profile";
     res.status(500).json({ error: message });
   }
 });

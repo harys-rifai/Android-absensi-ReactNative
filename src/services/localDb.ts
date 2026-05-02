@@ -13,6 +13,12 @@ const generateUUID = (): string => {
   });
 };
 
+const JAKARTA_OFFSET_MS = 7 * 60 * 60 * 1000;
+const getJakartaDateString = (date: Date): string => {
+  const jakartaTime = new Date(date.getTime() + JAKARTA_OFFSET_MS);
+  return `${jakartaTime.getUTCFullYear()}-${String(jakartaTime.getUTCMonth() + 1).padStart(2, '0')}-${String(jakartaTime.getUTCDate()).padStart(2, '0')}`;
+};
+
 // Platform detection
 const isWeb = typeof window !== 'undefined' && typeof localStorage !== 'undefined';
 
@@ -64,6 +70,16 @@ interface WebServerConfig {
   value: string;
 }
 
+// Clear old attendance data from localStorage on every load
+if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+  try {
+    localStorage.removeItem('attendance');
+    console.log('✓ Cleared old attendance data from localStorage');
+  } catch (e) {
+    console.error('Error clearing localStorage:', e);
+  }
+}
+
 export const webStorage: {
   employees: EngineerUser[];
   attendance: WebAttendance[];
@@ -71,7 +87,7 @@ export const webStorage: {
   serverConfig: WebServerConfig[];
 } = {
   employees: loadFromStorage('employees') || [],
-  attendance: loadFromStorage('attendance') || [],
+  attendance: [],
   news: loadFromStorage('news') || [],
   serverConfig: loadFromStorage('serverConfig') || [],
 };
@@ -94,6 +110,16 @@ const getDatabase = (): SQLite.SQLiteDatabase => {
 };
 
 // ==================== Initialize Database ====================
+let initPromise: Promise<void> | null = null;
+
+export const ensureDbInitialized = async (): Promise<void> => {
+  if (isWeb) return;
+  if (!initPromise) {
+    initPromise = initializeLocalDb();
+  }
+  await initPromise;
+};
+
 export const initializeLocalDb = async (): Promise<void> => {
   if (isWeb) {
     console.log("Web mode: using localStorage");
@@ -103,21 +129,27 @@ export const initializeLocalDb = async (): Promise<void> => {
   try {
     const database = getDatabase();
 
-    // Create tables
+    // Drop existing tables and recreate (for clean init)
     await database.execAsync(`
+      DROP TABLE IF EXISTS sync_log;
+      DROP TABLE IF EXISTS attendance;
+      DROP TABLE IF EXISTS news;
+      DROP TABLE IF EXISTS server_config;
+      DROP TABLE IF EXISTS employees;
+
       PRAGMA journal_mode = WAL;
       PRAGMA foreign_keys = ON;
 
-      CREATE TABLE IF NOT EXISTS employees (
+      CREATE TABLE employees (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         email TEXT UNIQUE NOT NULL,
         name TEXT NOT NULL,
         role TEXT NOT NULL,
-        site_id INTEGER,
+        site_id TEXT,
         password TEXT
       );
 
-      CREATE TABLE IF NOT EXISTS attendance (
+      CREATE TABLE attendance (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         employee_id INTEGER NOT NULL,
         check_in TEXT,
@@ -130,7 +162,7 @@ export const initializeLocalDb = async (): Promise<void> => {
         FOREIGN KEY (employee_id) REFERENCES employees(id)
       );
 
-      CREATE TABLE IF NOT EXISTS news (
+      CREATE TABLE news (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         remote_id INTEGER,
         title TEXT NOT NULL,
@@ -141,13 +173,13 @@ export const initializeLocalDb = async (): Promise<void> => {
         synced INTEGER DEFAULT 1
       );
 
-      CREATE TABLE IF NOT EXISTS server_config (
+      CREATE TABLE server_config (
         key TEXT PRIMARY KEY,
         value TEXT,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP
       );
 
-      CREATE TABLE IF NOT EXISTS sync_log (
+      CREATE TABLE sync_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         attendance_client_ref TEXT,
         status TEXT,
@@ -170,16 +202,29 @@ export const cacheSignedInUser = async (user: EngineerUser | null): Promise<void
     return;
   }
 
-  try {
+    try {
+    await ensureDbInitialized();
     const database = getDatabase();
     if (!user) {
-      // Clear cached user
       await database.runAsync('DELETE FROM employees');
     } else {
+      // Use INSERT ON CONFLICT instead of INSERT OR REPLACE for better compatibility
       await database.runAsync(
-        `INSERT OR REPLACE INTO employees (id, email, name, role, site_id, password)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [user.id || null, user.email, user.name, user.role, user.site_id || null, null]
+        `INSERT INTO employees (email, name, role, site_id, foto, flag, active, phone, jabatan, remark, datejoin, dateleft)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(email) DO UPDATE SET
+           name = excluded.name,
+           role = excluded.role,
+           site_id = excluded.site_id,
+           foto = excluded.foto,
+           flag = excluded.flag,
+           active = excluded.active,
+           phone = excluded.phone,
+           jabatan = excluded.jabatan,
+           remark = excluded.remark,
+           datejoin = excluded.datejoin,
+           dateleft = excluded.dateleft`,
+        [user.email, user.name, user.role, user.site_id || null, user.foto || null, user.flag || 'active', user.active ?? 1, user.phone || null, user.jabatan || null, user.remark || null, user.datejoin || null, user.dateleft || null]
       );
     }
   } catch (error) {
@@ -193,6 +238,7 @@ export const getLocalUser = async (email: string): Promise<EngineerUser | null> 
   }
 
   try {
+    await ensureDbInitialized();
     const database = getDatabase();
     const result = await database.getFirstAsync<EngineerUser>(
       'SELECT * FROM employees WHERE email = ?',
@@ -211,6 +257,7 @@ export const getCachedUser = async (): Promise<EngineerUser | null> => {
   }
 
   try {
+    await ensureDbInitialized();
     const database = getDatabase();
     const result = await database.getFirstAsync<EngineerUser>(
       'SELECT * FROM employees ORDER BY id DESC LIMIT 1'
@@ -231,12 +278,15 @@ export const saveCheckInLocal = async (
 ): Promise<boolean> => {
   const clientRef = generateUUID();
   const now = new Date().toISOString();
-  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+  const today = getJakartaDateString(new Date()); // YYYY-MM-DD in Jakarta Time
 
   if (isWeb) {
     // Check if already checked in today
     const alreadyCheckedInToday = webStorage.attendance.some(
-      (a) => a.employee_id === employeeId && a.check_in && a.check_in.startsWith(today)
+      (a) => {
+        if (!a.check_in) return false;
+        return getJakartaDateString(new Date(a.check_in)) === today;
+      }
     );
     if (alreadyCheckedInToday) {
       return false; // Already checked in today
@@ -257,15 +307,17 @@ export const saveCheckInLocal = async (
   }
 
   try {
+    await ensureDbInitialized();
     const database = getDatabase();
-    // Check if already checked in today (SQLite)
-    const existing = await database.getFirstAsync<{ id: number }>(
-      `SELECT id FROM attendance
-       WHERE employee_id = ? AND DATE(check_in) = ?`,
-      [employeeId, today]
+    // Fetch the latest check-in and compare dates using JS to avoid SQLite datetime support issues on some Androids
+    const existing = await database.getFirstAsync<{ check_in: string }>(
+      `SELECT check_in FROM attendance WHERE employee_id = ? ORDER BY check_in DESC LIMIT 1`,
+      [employeeId]
     );
-    if (existing) {
-      return false; // Already checked in today
+    if (existing && existing.check_in) {
+      if (getJakartaDateString(new Date(existing.check_in)) === today) {
+        return false; // Already checked in today
+      }
     }
     await database.runAsync(
       `INSERT INTO attendance (employee_id, check_in, latitude, longitude, location_type, synced, client_ref)
@@ -286,12 +338,15 @@ export const saveCheckOutLocal = async (
   locationType: string
 ): Promise<boolean> => {
   const now = new Date().toISOString();
-  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+  const today = getJakartaDateString(new Date()); // YYYY-MM-DD in Jakarta Time
 
   if (isWeb) {
     // Check if already checked out today
     const alreadyCheckedOutToday = webStorage.attendance.some(
-      (a) => a.employee_id === employeeId && a.check_out && a.check_out.startsWith(today)
+      (a) => {
+        if (!a.check_out) return false;
+        return getJakartaDateString(new Date(a.check_out)) === today;
+      }
     );
     if (alreadyCheckedOutToday) {
       return false; // Already checked out today
@@ -310,23 +365,22 @@ export const saveCheckOutLocal = async (
   }
 
   try {
+    await ensureDbInitialized();
     const database = getDatabase();
-    // Check if already checked out today (SQLite)
-    const alreadyOut = await database.getFirstAsync<{ id: number }>(
-      `SELECT id FROM attendance
-       WHERE employee_id = ? AND DATE(check_out) = ?
-       LIMIT 1`,
-      [employeeId, today]
+    // Fetch the latest check-in/out to avoid SQLite datetime issues
+    const lastRecord = await database.getFirstAsync<{ id: number, check_out: string | null }>(
+      `SELECT id, check_out FROM attendance WHERE employee_id = ? ORDER BY check_in DESC LIMIT 1`,
+      [employeeId]
     );
-    if (alreadyOut) {
-      return false; // Already checked out today
+    
+    if (!lastRecord || lastRecord.check_out) {
+      return false; // No open check-in or already checked out
     }
     const result = await database.runAsync(
       `UPDATE attendance
        SET check_out = ?, latitude = ?, longitude = ?, location_type = ?, synced = 0
-       WHERE employee_id = ? AND check_out IS NULL
-       LIMIT 1`,
-      [now, latitude, longitude, locationType, employeeId]
+       WHERE id = ?`,
+      [now, latitude, longitude, locationType, lastRecord.id]
     );
     return result.changes > 0;
   } catch (error) {
@@ -353,6 +407,7 @@ export const getUnsyncedAttendance = async (): Promise<AttendanceRecord[]> => {
   }
 
   try {
+    await ensureDbInitialized();
     const database = getDatabase();
     const rows = await database.getAllAsync<WebAttendance>(
       'SELECT * FROM attendance WHERE synced = 0'
@@ -388,6 +443,7 @@ export const markAttendanceSynced = async (clientRefs: string[]): Promise<void> 
   }
 
   try {
+    await ensureDbInitialized();
     const database = getDatabase();
     const placeholders = clientRefs.map(() => '?').join(',');
     await database.runAsync(
@@ -444,6 +500,7 @@ export const getLocalAttendanceForUser = async (
   }
 
   try {
+    await ensureDbInitialized();
     const database = getDatabase();
     const rows = await database.getAllAsync<WebAttendance>(
       'SELECT * FROM attendance WHERE employee_id = ? ORDER BY check_in DESC',
@@ -517,6 +574,7 @@ export const saveNewsLocal = async (news: NewsItem): Promise<void> => {
   }
 
   try {
+    await ensureDbInitialized();
     const database = getDatabase();
     await database.runAsync(
       `INSERT OR REPLACE INTO news (remote_id, title, content, image_url, author_name, published_at, synced)
@@ -545,6 +603,7 @@ export const saveNewsLocalBatch = async (newsItems: NewsItem[]): Promise<void> =
   }
 
   try {
+    await ensureDbInitialized();
     const database = getDatabase();
     for (const item of newsItems) {
       await database.runAsync(
@@ -573,6 +632,7 @@ export const getLocalNews = async (): Promise<NewsItem[]> => {
   }
 
   try {
+    await ensureDbInitialized();
     const database = getDatabase();
     const rows = await database.getAllAsync<WebNews>('SELECT * FROM news');
     return rows.map((row) => ({
@@ -611,6 +671,7 @@ export const saveServerConfig = async (key: string, value: string): Promise<void
   }
 
   try {
+    await ensureDbInitialized();
     const database = getDatabase();
     await database.runAsync(
       `INSERT OR REPLACE INTO server_config (key, value, updated_at)
@@ -629,6 +690,7 @@ export const getServerConfig = async (key: string): Promise<string | null> => {
   }
 
   try {
+    await ensureDbInitialized();
     const database = getDatabase();
     const result = await database.getFirstAsync<{ value: string }>(
       'SELECT value FROM server_config WHERE key = ?',
@@ -653,6 +715,7 @@ export const insertSyncLog = async (
   }
 
   try {
+    await ensureDbInitialized();
     const database = getDatabase();
     await database.runAsync(
       `INSERT INTO sync_log (attendance_client_ref, status, message, created_at)

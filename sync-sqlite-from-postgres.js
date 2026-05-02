@@ -15,8 +15,8 @@ const pool = new Pool({
 });
 
 // SQLite database path (for native app)
-const sqlitePath = path.join(__dirname, 'local_attendance.db');
-const webSqlitePath = path.join(__dirname, 'apsensi.db');
+const sqlitePath = path.join(__dirname, "local_attendance.db");
+const webSqlitePath = path.join(__dirname, "apsensi.db");
 
 async function syncDatabase() {
   try {
@@ -36,57 +36,18 @@ async function syncDatabase() {
     const db = new SQLite(sqlitePath);
 
     // Create tables
-    db.exec(`
-      PRAGMA journal_mode = WAL;
-      PRAGMA foreign_keys = ON;
+    db.exec('PRAGMA journal_mode = DELETE;');
+    db.exec('PRAGMA foreign_keys = ON;');
 
-      CREATE TABLE IF NOT EXISTS employee (
-        id INTEGER PRIMARY KEY,
-        name TEXT NOT NULL,
-        email TEXT UNIQUE NOT NULL,
-        role TEXT NOT NULL,
-        password_hash TEXT
-      );
+    db.exec("CREATE TABLE IF NOT EXISTS employee (id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT UNIQUE NOT NULL, role TEXT NOT NULL, password_hash TEXT, foto TEXT, flag TEXT DEFAULT 'active', active INTEGER DEFAULT 1, phone TEXT, jabatan TEXT, remark TEXT, datejoin TEXT, dateleft TEXT)");
 
-      CREATE TABLE IF NOT EXISTS attendance (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        employee_id INTEGER NOT NULL,
-        check_in TEXT,
-        check_out TEXT,
-        latitude REAL,
-        longitude REAL,
-        location_type TEXT,
-        synced INTEGER DEFAULT 1,
-        client_ref TEXT UNIQUE,
-        FOREIGN KEY (employee_id) REFERENCES employee(id)
-      );
+    db.exec("CREATE TABLE IF NOT EXISTS attendance (id INTEGER PRIMARY KEY AUTOINCREMENT, employee_id INTEGER NOT NULL, check_in TEXT, check_out TEXT, latitude REAL, longitude REAL, location_type TEXT, synced INTEGER DEFAULT 1, client_ref TEXT UNIQUE, FOREIGN KEY (employee_id) REFERENCES employee(id))");
 
-      CREATE TABLE IF NOT EXISTS sync_log (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        attendance_client_ref TEXT NOT NULL,
-        status TEXT NOT NULL,
-        message TEXT,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP
-      );
+    db.exec("CREATE TABLE IF NOT EXISTS sync_log (id INTEGER PRIMARY KEY AUTOINCREMENT, attendance_client_ref TEXT NOT NULL, status TEXT NOT NULL, message TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
 
-      CREATE TABLE IF NOT EXISTS news (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        remote_id INTEGER UNIQUE,
-        title TEXT NOT NULL,
-        content TEXT NOT NULL,
-        image_url TEXT,
-        author_name TEXT,
-        published_at TEXT,
-        synced INTEGER DEFAULT 1
-      );
+    db.exec("CREATE TABLE IF NOT EXISTS news (id INTEGER PRIMARY KEY AUTOINCREMENT, remote_id INTEGER UNIQUE, title TEXT NOT NULL, content TEXT NOT NULL, image_url TEXT, author_name TEXT, published_at TEXT, synced INTEGER DEFAULT 1)");
 
-      CREATE TABLE IF NOT EXISTS server_config (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        key TEXT UNIQUE NOT NULL,
-        value TEXT,
-        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
+    db.exec("CREATE TABLE IF NOT EXISTS server_config (id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT UNIQUE NOT NULL, value TEXT, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)");
 
     // Fetch data from PostgreSQL
     console.log('📥 Fetching data from PostgreSQL...');
@@ -96,12 +57,26 @@ async function syncDatabase() {
     console.log(`  Found ${employees.rows.length} employees`);
 
     const insertEmployee = db.prepare(`
-      INSERT OR REPLACE INTO employee (id, name, email, role, password_hash)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO employee (id, name, email, role, password_hash, foto, flag, active, phone, jabatan, remark, datejoin, dateleft)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     for (const emp of employees.rows) {
-      insertEmployee.run(emp.id, emp.name, emp.email, emp.role, emp.password_hash);
+      insertEmployee.run(
+        emp.id,
+        emp.name,
+        emp.email,
+        emp.role,
+        emp.password_hash || null,
+        emp.foto || null,
+        emp.flag || 'active',
+        emp.active === true || emp.active === 't' ? 1 : 0,
+        emp.phone || null,
+        emp.jabatan || null,
+        emp.remark || null,
+        emp.datejoin ? String(emp.datejoin) : null,
+        emp.dateleft ? String(emp.dateleft) : null
+      );
     }
     console.log(`  ✓ Copied ${employees.rows.length} employees`);
 
@@ -181,65 +156,41 @@ async function syncDatabase() {
     console.log('\n🌐 Creating SQLite database for web app...');
     const webDb = new SQLite(webSqlitePath);
 
-    webDb.exec(`
-      PRAGMA journal_mode = WAL;
-      PRAGMA foreign_keys = ON;
+    webDb.exec('PRAGMA journal_mode = WAL;');
+    webDb.exec('PRAGMA foreign_keys = ON;');
 
-      CREATE TABLE IF NOT EXISTS employees (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        email TEXT UNIQUE NOT NULL,
-        name TEXT NOT NULL,
-        role TEXT NOT NULL,
-        site_id INTEGER,
-        password TEXT
-      );
+    webDb.exec("CREATE TABLE IF NOT EXISTS employees (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE NOT NULL, name TEXT NOT NULL, role TEXT NOT NULL, site_id INTEGER, foto TEXT, flag TEXT DEFAULT 'active', active INTEGER DEFAULT 1, phone TEXT, jabatan TEXT, remark TEXT, datejoin TEXT, dateleft TEXT, password TEXT)");
 
-      CREATE TABLE IF NOT EXISTS attendance (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        employee_id INTEGER NOT NULL,
-        check_in TEXT,
-        check_out TEXT,
-        latitude REAL,
-        longitude REAL,
-        location_type TEXT,
-        synced INTEGER DEFAULT 1,
-        client_ref TEXT UNIQUE
-      );
+    webDb.exec("CREATE TABLE IF NOT EXISTS attendance (id INTEGER PRIMARY KEY AUTOINCREMENT, employee_id INTEGER NOT NULL, check_in TEXT, check_out TEXT, latitude REAL, longitude REAL, location_type TEXT, synced INTEGER DEFAULT 1, client_ref TEXT UNIQUE)");
 
-      CREATE TABLE IF NOT EXISTS news (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        remote_id INTEGER,
-        title TEXT NOT NULL,
-        content TEXT,
-        image_url TEXT,
-        author_name TEXT,
-        published_at TEXT,
-        synced INTEGER DEFAULT 1
-      );
+    webDb.exec("CREATE TABLE IF NOT EXISTS news (id INTEGER PRIMARY KEY AUTOINCREMENT, remote_id INTEGER, title TEXT NOT NULL, content TEXT NOT NULL, image_url TEXT, author_name TEXT, published_at TEXT, synced INTEGER DEFAULT 1)");
 
-      CREATE TABLE IF NOT EXISTS server_config (
-        key TEXT PRIMARY KEY,
-        value TEXT,
-        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-      );
+    webDb.exec("CREATE TABLE IF NOT EXISTS server_config (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)");
 
-      CREATE TABLE IF NOT EXISTS sync_log (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        attendance_client_ref TEXT,
-        status TEXT,
-        message TEXT,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
+    webDb.exec("CREATE TABLE IF NOT EXISTS sync_log (id INTEGER PRIMARY KEY AUTOINCREMENT, attendance_client_ref TEXT, status TEXT, message TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
 
     // Copy data to web database
     const webInsertEmployee = webDb.prepare(`
-      INSERT OR REPLACE INTO employees (id, email, name, role, site_id, password)
-      VALUES (?, ?, ?, ?, ?, NULL)
+      INSERT OR REPLACE INTO employees (id, email, name, role, site_id, foto, flag, active, phone, jabatan, remark, datejoin, dateleft, password)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
     `);
 
     for (const emp of employees.rows) {
-      webInsertEmployee.run(emp.id, emp.email, emp.name, emp.role, emp.site_id || null);
+      webInsertEmployee.run(
+        emp.id,
+        emp.email,
+        emp.name,
+        emp.role,
+        emp.site_id || null,
+        emp.foto || null,
+        emp.flag || 'active',
+        emp.active === true || emp.active === 't' ? 1 : 0,
+        emp.phone || null,
+        emp.jabatan || null,
+        emp.remark || null,
+        emp.datejoin ? String(emp.datejoin) : null,
+        emp.dateleft ? String(emp.dateleft) : null
+      );
     }
 
     const webInsertAttendance = webDb.prepare(`

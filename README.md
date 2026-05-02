@@ -6,14 +6,14 @@ Aplikasi absensi hybrid menggunakan React Native dengan Expo, SQLite local datab
 
 ### Mobile App (iPhone UI)
 ![Login Screen](imgs/mobile-login.png)
-![Attendance Screen](imgs/mobile-attendance.png)
-![Calendar History](imgs/mobile-calendar.png)
+![Attendance Screen with User Summary](imgs/mobile-attendance.png)
+![Profile Settings](imgs/mobile-calendar.png)
 ![Dashboard HRD](imgs/mobile-dashboard.png)
 
 ### Web Dashboard (iPhone Style)
 ![Web Login](imgs/web-login.png)
-![Web Dashboard](imgs/web-dashboard.png)
-![Web Calendar](imgs/web-calendar.png)
+![Web Dashboard with User Summary](imgs/web-dashboard.png)
+![Web Attendance History](imgs/web-calendar.png)
 
 ## 🆕 What's New (Latest Update)
 
@@ -23,19 +23,22 @@ Aplikasi absensi hybrid menggunakan React Native dengan Expo, SQLite local datab
 - **Server-side GPS Validation** - Haversine formula validates location server-side
 - **Duplicate Check-in Prevention** - Backend blocks multiple active check-ins
 - **UUID Generation** - Proper unique IDs instead of Math.random()
+- **One Check-in/Check-out Per Day** - Each user can only check in AND out once per day (Jakarta timezone)
 
 ### 🎨 iPhone-Style UI
 - **SF Pro Font** - Native iOS font family
 - **iOS Colors** - #007AFF primary, #8e8e93 secondary, #f2f2f7 background
 - **Card Shadows** - Proper elevation and blur effects
-- **Calendar View** - Monthly calendar with attendance status dots
-- **Tab Navigation** - Bottom tab bar with icons
+- **User Summary View** - Replaced calendar with Check-in/Check-out/Late/Cuti/Overtime stats
+- **Tab Navigation** - Bottom tab bar with smaller icons (18px) and font (10px)
+- **Profile Settings** - User profile card with photo, name, jabatan, email, phone (editable)
 
 ### 👔 HRD Dashboard & Workflow
 - **HRD Dashboard** - Statistics cards (Total, Late, Leave, Overtime)
 - **Leave Approval Workflow** - pending_manager → pending_hrd → approved
 - **Role-based Access** - User, Manager, HRD, Admin roles
 - **Project Sites** - Jakarta HQ, Bandung Plant, Surabaya Field Office
+- **Enhanced Employee Data** - New fields: foto, flag, active, phone, jabatan, remark, datejoin, dateleft
 
 ## 📱 Fitur Utama
 
@@ -47,9 +50,11 @@ Aplikasi absensi hybrid menggunakan React Native dengan Expo, SQLite local datab
 - **Offline-First** - Aplikasi tetap berjalan tanpa koneksi internet
 - **Auto-Sync** - Sinkronisasi otomatis setiap 15 menit
 - **iPhone-Style UI** - Interface mengikuti Human Interface Guidelines
-- **Calendar View** - Riwayat absensi dalam tampilan kalender
+- **User Summary** - Statistik absensi (Check-in, Check-out, Late, Cuti, Overtime)
+- **Profile Settings** - Edit nama, phone, foto profil
 - **HRD Dashboard** - Statistik dan approval cuti/lembur
 - **Server Connection Settings** - Konfigurasi koneksi server yang fleksibel
+- **One Check-in/Check-out Per Day** - Mencegah duplicate attendance
 
 ## 🏗️ Arsitektur
 

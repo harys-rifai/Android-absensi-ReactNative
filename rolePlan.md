@@ -310,3 +310,8 @@ MIT License
 Harys Rifai - harysrifai@gmail.com
 
 Project Link: https://github.com/harysrifai/Android-absensi-ReactNative
+
+
+style using menu like iphone 17 pro on bottom bar using tranparant theme 
+
+font using SF Pro 

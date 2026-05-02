@@ -5,15 +5,15 @@ Aplikasi absensi hybrid menggunakan React Native dengan Expo, SQLite local datab
 ## 📱 Screenshots
 
 ### Mobile App (iPhone UI)
-![Login Screen](imgs/mobile-login.png)
-![Attendance Screen with User Summary](imgs/mobile-attendance.png)
-![Profile Settings](imgs/mobile-calendar.png)
-![Dashboard HRD](imgs/mobile-dashboard.png)
+![Login Screen](imgs/mobile-login.jpeg)
+![Attendance Screen with User Summary](imgs/mobile-attendance.jpeg)
+![Profile Settings](imgs/mobile-calendar.jpeg)
+![Dashboard HRD](imgs/mobile-dashboard.jpeg)
 
 ### Web Dashboard (iPhone Style)
-![Web Login](imgs/web-login.png)
-![Web Dashboard with User Summary](imgs/web-dashboard.png)
-![Web Attendance History](imgs/web-calendar.png)
+![Web Login](imgs/web-login.jpeg)
+![Web Dashboard with User Summary](imgs/web-dashboard.jpeg)
+![Web Attendance History](imgs/web-calendar.jpeg)
 
 ## 🆕 What's New (Latest Update)
 

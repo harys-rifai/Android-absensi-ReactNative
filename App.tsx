@@ -9,12 +9,12 @@ import {
   ActivityIndicator,
   Alert,
   Platform,
-  SafeAreaView,
   TextInput,
   FlatList,
   Modal,
   Image,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { NavigationContainer } from "@react-navigation/native";
 import { BarCodeScanner } from "expo-barcode-scanner";
@@ -212,10 +212,12 @@ function AbsensiScreen({
       // Fetch from server first (authoritative source)
       let remoteRecords: AttendanceRecord[] = [];
       try {
+        const apiUrl = getApiBaseUrl();
+        console.log('Fetching attendance from:', apiUrl);
         remoteRecords = await fetchAttendanceRecords(user.id, user.role);
         console.log("Fetched from server:", remoteRecords.length, "records");
-      } catch (e) {
-        console.log("Server fetch failed, using local data:", e);
+      } catch (e: any) {
+        console.log("Server fetch failed:", e?.message || e, "using local data");
       }
 
       // Get local records

@@ -9,9 +9,10 @@ const SERVER_PORT = "4000";
 // Default URL based on platform
 const getDefaultUrl = (): string => {
   if (Platform.OS === "android") {
-    // Check if running on emulator (10.0.2.2 is special alias for host localhost)
+    // For Android emulator, 10.0.2.2 is special alias for host localhost
+    // For physical devices via USB, use adb reverse tcp:4000 tcp:4000
     // For physical devices on same network, use actual server IP
-    return `http://${SERVER_IP}:${SERVER_PORT}`;
+    return `http://10.0.2.2:${SERVER_PORT}`; // Emulator default
   }
   if (Platform.OS === "ios") {
     // iOS simulator can use localhost

@@ -309,7 +309,7 @@ export const saveCheckInLocal = async (
   try {
     await ensureDbInitialized();
     const database = getDatabase();
-    // Fetch the latest check-in and compare dates using JS to avoid SQLite datetime support issues on some Androids
+    // Fetch the latest check-in and compare dates using JS to avoid SQLite datetime support issues
     const existing = await database.getFirstAsync<{ check_in: string }>(
       `SELECT check_in FROM attendance WHERE employee_id = ? ORDER BY check_in DESC LIMIT 1`,
       [employeeId]

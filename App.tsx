@@ -357,6 +357,9 @@ function AbsensiScreen({
       // Get today's date in Jakarta timezone
       const now = new Date();
       const todayJakarta = getJakartaDateString(now);
+      console.log('Today (Jakarta):', todayJakarta);
+      console.log('Total records:', records.length);
+      console.log('Records:', records.map(r => ({id: r.id, check_in: r.check_in, check_out: r.check_out})));
 
       // Filter today's records using Jakarta date
       const todayRecords = records.filter((r) => {
@@ -364,10 +367,12 @@ function AbsensiScreen({
         const checkInDate = getJakartaDateString(new Date(r.check_in));
         return checkInDate === todayJakarta;
       });
+      console.log('Today records:', todayRecords.length);
 
       if (mode === "check-in") {
         // Only block if there's an UNCHECKED-OUT record for today
         const hasOpenCheckin = todayRecords.some((r) => !r.check_out);
+        console.log('Has open check-in:', hasOpenCheckin);
         if (hasOpenCheckin) {
           Alert.alert(
             "Already Checked In",
@@ -376,12 +381,14 @@ function AbsensiScreen({
           setIsSubmitting(false);
           return;
         }
+        console.log('Calling saveCheckInLocal...');
         const checkInSuccess = await saveCheckInLocal(
           user.id,
           latitude,
           longitude,
           locationType,
         );
+        console.log('saveCheckInLocal result:', checkInSuccess);
         if (!checkInSuccess) {
           Alert.alert(
             "Check-in Failed",
@@ -390,6 +397,7 @@ function AbsensiScreen({
           setIsSubmitting(false);
           return;
         }
+        console.log('Check-in successful!');
         setLastMessage(
           `Check-in successful at ${locationType === "onsite" ? "inside" : "outside"} area`,
         );

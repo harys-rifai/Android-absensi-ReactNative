@@ -185,10 +185,15 @@ function AbsensiScreen({
 
   useEffect(() => {
     const loadSites = async () => {
-      console.log('Loading sites... user.site_id:', user.site_id);
+      console.log('Loading sites... user.site_id:', user.site_id, typeof user.site_id);
       const sites = await getProjectSites();
-      console.log('Sites loaded:', sites.length, sites);
-      const site = sites.find((s) => s.id === Number(user.site_id));
+      console.log('Sites loaded:', sites.length, sites.map(s => ({id: s.id, type: typeof s.id, name: s.name_site})));
+      const siteIdNum = Number(user.site_id);
+      console.log('Comparing site_id:', siteIdNum, 'typeof:', typeof siteIdNum);
+      const site = sites.find((s) => {
+        console.log('Comparing:', s.id, typeof s.id, 'with', siteIdNum, typeof siteIdNum, 'equal?', s.id === siteIdNum);
+        return s.id === siteIdNum;
+      });
       console.log('Found site:', site);
       if (site) setUserSite(site);
     };
@@ -473,7 +478,8 @@ function AbsensiScreen({
       <Text style={styles.title}>Hello, {user.name}</Text>
       <Text style={styles.subtitle}>
         Role: {user.role}
-        {userSite ? ` • ${userSite.name}` : ""}
+        {userSite ? ` • ${userSite.name_site || userSite.name || 'No site'}` : " • undefined"}
+        {!userSite && " (Debug: userSite is null)"}
       </Text>
 
       {isSubmitting ? (
